@@ -9,11 +9,50 @@ Add-Type -AssemblyName WindowsBase
 
 # Import Modules
 $ScriptPath = $PSScriptRoot
+
+# Remote Execution / Missing Path Logic
 if (-not $ScriptPath) {
-    $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+    if ($MyInvocation.MyCommand.Path) {
+        $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+    } else {
+        $ScriptPath = Get-Location
+    }
 }
-if (-not $ScriptPath) {
-    $ScriptPath = Get-Location
+
+# Bootstrapper: Check if running remotely (missing local modules) and download them
+if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
+    Write-Host "Remote Execution Detected. Initializing IlumnulOS Bootstrapper..." -ForegroundColor Cyan
+    
+    $InstallPath = "$env:TEMP\IlumnulOS_v2"
+    $RepoUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
+    
+    # Create Directories
+    New-Item -ItemType Directory -Path "$InstallPath\Modules" -Force | Out-Null
+    New-Item -ItemType Directory -Path "$InstallPath\Assets" -Force | Out-Null
+    
+    # Helper to download
+    function Download-File {
+        param($RemotePath, $LocalPath)
+        try {
+            Write-Host "Downloading $RemotePath..." -NoNewline
+            Invoke-WebRequest -Uri "$RepoUrl/$RemotePath" -OutFile "$LocalPath" -UseBasicParsing
+            Write-Host " [OK]" -ForegroundColor Green
+        } catch {
+            Write-Host " [FAILED]" -ForegroundColor Red
+            Write-Error "Failed to download $RemotePath. Check internet connection."
+            exit
+        }
+    }
+    
+    # Download Core Files
+    Download-File "Assets/MainWindow.xaml" "$InstallPath\Assets\MainWindow.xaml"
+    Download-File "Modules/Debloat.psm1" "$InstallPath\Modules\Debloat.psm1"
+    Download-File "Modules/Gaming.psm1" "$InstallPath\Modules\Gaming.psm1"
+    Download-File "Modules/Optimize.psm1" "$InstallPath\Modules\Optimize.psm1"
+    Download-File "Modules/RemoveAI.psm1" "$InstallPath\Modules\RemoveAI.psm1"
+    
+    $ScriptPath = $InstallPath
+    Write-Host "Bootstrapping Complete. Launching..." -ForegroundColor Green
 }
 
 # Ensure modules exist before importing to avoid errors if run independently
