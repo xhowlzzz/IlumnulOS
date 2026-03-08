@@ -12,6 +12,7 @@
 ## 📋 Table of Contents
 
 - [Features](#-features)
+- [Screenshots](#-screenshots)
 - [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
 - [Usage](#-usage)
@@ -34,6 +35,12 @@ IlumnulOS organizes its capabilities into intuitive modules accessible via a mod
 *   **🤖 AI Control Center**: **Exclusive Feature**. Completely disable and remove Windows Intelligence, Copilot, Recall (Snapshots), and Office AI integrations.
 *   **⚡ System Tuning**: Apply power plan optimizations, visual effect tweaks, and file system improvements.
 *   **💻 Built-in Terminal**: View real-time logs of all operations directly within the app interface.
+
+---
+
+## 📸 Screenshots
+
+*(Add screenshots of the Dashboard, AI Control, and Terminal tabs here)*
 
 ---
 
