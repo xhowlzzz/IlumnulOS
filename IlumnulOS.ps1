@@ -116,6 +116,10 @@ function Start-AsyncOperation {
     # Create the runspace
     # Use InitialSessionState.CreateDefault() to ensure all system modules (Appx, Dism, etc.) are loaded
     $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    # Explicitly import modules into the session state before creating the runspace
+    foreach ($m in @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender")) {
+        $iss.ImportPSModule($m)
+    }
     $rs = [PowerShell]::Create($iss)
     
     # Add necessary modules and functions to the runspace
@@ -128,15 +132,12 @@ function Start-AsyncOperation {
         param($Path, $SyncHash, $Task, $SuccessMsg)
 
         # Import system modules to ensure commands are available in the Runspace
-        # Using -Global to ensure they persist in the session state
-        if ($PSVersionTable.PSVersion.Major -ge 5) {
-            Import-Module Appx -ErrorAction SilentlyContinue
-            Import-Module ScheduledTasks -ErrorAction SilentlyContinue
-            Import-Module Dism -ErrorAction SilentlyContinue
-            Import-Module Storage -ErrorAction SilentlyContinue
-            Import-Module NetAdapter -ErrorAction SilentlyContinue
-            Import-Module DnsClient -ErrorAction SilentlyContinue
-            Import-Module Defender -ErrorAction SilentlyContinue
+        # Force import by full name if possible, or skip error check to see real failure
+        $modules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender")
+        foreach ($mod in $modules) {
+            if (Get-Module -ListAvailable $mod) {
+                Import-Module $mod -Force -ErrorAction SilentlyContinue
+            }
         }
         
         # Define Log function inside runspace that calls back to UI
