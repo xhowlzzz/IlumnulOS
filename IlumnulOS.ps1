@@ -128,13 +128,16 @@ function Start-AsyncOperation {
         param($Path, $SyncHash, $Task, $SuccessMsg)
 
         # Import system modules to ensure commands are available in the Runspace
-        Import-Module Appx -ErrorAction SilentlyContinue
-        Import-Module ScheduledTasks -ErrorAction SilentlyContinue
-        Import-Module Dism -ErrorAction SilentlyContinue
-        Import-Module Storage -ErrorAction SilentlyContinue
-        Import-Module NetAdapter -ErrorAction SilentlyContinue
-        Import-Module DnsClient -ErrorAction SilentlyContinue
-        Import-Module Defender -ErrorAction SilentlyContinue
+        # Using -Global to ensure they persist in the session state
+        if ($PSVersionTable.PSVersion.Major -ge 5) {
+            Import-Module Appx -ErrorAction SilentlyContinue
+            Import-Module ScheduledTasks -ErrorAction SilentlyContinue
+            Import-Module Dism -ErrorAction SilentlyContinue
+            Import-Module Storage -ErrorAction SilentlyContinue
+            Import-Module NetAdapter -ErrorAction SilentlyContinue
+            Import-Module DnsClient -ErrorAction SilentlyContinue
+            Import-Module Defender -ErrorAction SilentlyContinue
+        }
         
         # Define Log function inside runspace that calls back to UI
         function Log($msg) {
