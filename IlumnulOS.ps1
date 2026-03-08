@@ -8,7 +8,14 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
 # Import Modules
-$ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptPath = $PSScriptRoot
+if (-not $ScriptPath) {
+    $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $ScriptPath) {
+    $ScriptPath = Get-Location
+}
+
 # Ensure modules exist before importing to avoid errors if run independently
 if (Test-Path "$ScriptPath\Modules\Debloat.psm1") { Import-Module "$ScriptPath\Modules\Debloat.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\Optimize.psm1") { Import-Module "$ScriptPath\Modules\Optimize.psm1" -Force }
@@ -16,674 +23,22 @@ if (Test-Path "$ScriptPath\Modules\Gaming.psm1") { Import-Module "$ScriptPath\Mo
 if (Test-Path "$ScriptPath\Modules\RemoveAI.psm1") { Import-Module "$ScriptPath\Modules\RemoveAI.psm1" -Force }
 
 # -----------------------------------------------------------------------------
-# Hardware Detection - Moved to TOP to ensure variables are ready for XAML string interpolation
+# Initialize UI Elements & Events
 # -----------------------------------------------------------------------------
-function Get-HardwareInfo {
-    try {
-        $cpu = (Get-CimInstance Win32_Processor).Name -replace '\s+', ' '
-        $gpu = (Get-CimInstance Win32_VideoController | Where-Object { $_.PNPDeviceID -match "PCI\\VEN_" } | Select-Object -First 1).Name
-        $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 0)
-        
-        return @{ CPU = $cpu; GPU = $gpu; RAM = "$ram GB" }
-    } catch {
-        return @{ CPU = "Unknown CPU"; GPU = "Unknown GPU"; RAM = "Unknown RAM" }
-    }
+
+# Load XAML from file
+$XamlPath = Join-Path -Path $ScriptPath -ChildPath "Assets\MainWindow.xaml"
+if (!(Test-Path $XamlPath)) {
+    Write-Error "CRITICAL ERROR: MainWindow.xaml not found at $XamlPath"
+    exit
 }
 
-$hwInfo = Get-HardwareInfo
-
-# Helper to determine logo based on name (simulated with text/color for now)
-$cpuColor = if ($hwInfo.CPU -match "Intel") { "#0071C5" } elseif ($hwInfo.CPU -match "AMD") { "#ED1C24" } else { "#888888" }
-$gpuColor = if ($hwInfo.GPU -match "NVIDIA") { "#76B900" } elseif ($hwInfo.GPU -match "AMD") { "#ED1C24" } elseif ($hwInfo.GPU -match "Intel") { "#0071C5" } else { "#888888" }
-
-# XAML Definition (Raw String)
-$xamlString = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="IlumnulOS" Height="720" Width="1100" Name="MainWindow"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
-        WindowStyle="None" AllowsTransparency="True" Background="Transparent">
-    
-    <Window.Resources>
-        <!-- Color Palette (Modern Dark Theme) -->
-        <Color x:Key="WindowBackgroundColor">#1A1B26</Color> <!-- Deep Blue/Gray -->
-        <Color x:Key="SidebarBackgroundColor">#16161E</Color> <!-- Darker Sidebar -->
-        <Color x:Key="AccentColorValue">#00FFFF</Color> <!-- Neon Cyan -->
-        <Color x:Key="SecondaryAccentValue">#BD93F9</Color> <!-- Soft Purple -->
-        <Color x:Key="CardBackgroundColor">#24283B</Color> <!-- Card Background -->
-        <Color x:Key="TextPrimaryColor">#C0CAF5</Color> <!-- Soft White/Blue -->
-        <Color x:Key="TextSecondaryColor">#565F89</Color> <!-- Muted Blue/Gray -->
-        
-        <SolidColorBrush x:Key="WindowBackground" Color="{StaticResource WindowBackgroundColor}"/>
-        <SolidColorBrush x:Key="SidebarBackground" Color="{StaticResource SidebarBackgroundColor}"/>
-        <SolidColorBrush x:Key="AccentColor" Color="{StaticResource AccentColorValue}"/>
-        <SolidColorBrush x:Key="SecondaryAccent" Color="{StaticResource SecondaryAccentValue}"/>
-        <SolidColorBrush x:Key="CardBackground" Color="{StaticResource CardBackgroundColor}"/>
-        <SolidColorBrush x:Key="TextPrimary" Color="{StaticResource TextPrimaryColor}"/>
-        <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}"/>
-
-        <!-- Fonts -->
-        <FontFamily x:Key="MainFont">Segoe UI Variable Display, Segoe UI, Inter</FontFamily>
-        
-        <!-- Animations -->
-        <Storyboard x:Key="FadeInContent">
-            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.4"/>
-            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)" From="10" To="0" Duration="0:0:0.4">
-                <DoubleAnimation.EasingFunction>
-                    <PowerEase EasingMode="EaseOut" Power="3"/>
-                </DoubleAnimation.EasingFunction>
-            </DoubleAnimation>
-        </Storyboard>
-
-        <Storyboard x:Key="SlideInRight">
-            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.3"/>
-            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" From="50" To="0" Duration="0:0:0.3">
-                <DoubleAnimation.EasingFunction>
-                    <PowerEase EasingMode="EaseOut" Power="3"/>
-                </DoubleAnimation.EasingFunction>
-            </DoubleAnimation>
-        </Storyboard>
-
-        <!-- Navigation Button Style -->
-        <Style TargetType="RadioButton" x:Key="NavButton">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
-            <Setter Property="FontSize" Value="15"/>
-            <Setter Property="FontFamily" Value="{StaticResource MainFont}"/>
-            <Setter Property="Margin" Value="10,5"/>
-            <Setter Property="Padding" Value="15,12"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="8">
-                            <StackPanel Orientation="Horizontal" Margin="{TemplateBinding Padding}">
-                                <TextBlock x:Name="icon" Text="{TemplateBinding Tag}" FontFamily="Segoe MDL2 Assets" FontSize="18" Margin="0,0,15,0" VerticalAlignment="Center"/>
-                                <ContentPresenter VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#2A2F45"/>
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
-                            </Trigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#24283B"/>
-                                <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
-                                <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource AccentColor}"/>
-                                <Setter TargetName="border" Property="BorderThickness" Value="2,0,0,0"/> <!-- Left accent bar -->
-                                <Setter TargetName="border" Property="Padding" Value="13,12,15,12"/> <!-- Adjust for border -->
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Modern Toggle Switch Style with Animation -->
-        <Style TargetType="CheckBox" x:Key="ToggleSwitch">
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="FontFamily" Value="{StaticResource MainFont}"/>
-            <Setter Property="Margin" Value="0,8"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="CheckBox">
-                        <Grid Background="Transparent">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <ContentPresenter Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                            <!-- Track -->
-                            <Border Grid.Column="1" x:Name="SwitchTrack" Width="44" Height="24" CornerRadius="12" Background="#414868" BorderThickness="1" BorderBrush="#565F89">
-                                <!-- Thumb -->
-                                <Ellipse x:Name="SwitchKnob" Width="18" Height="18" Fill="White" HorizontalAlignment="Left" Margin="2,0">
-                                    <Ellipse.Effect>
-                                        <DropShadowEffect Color="Black" Opacity="0.3" BlurRadius="2" ShadowDepth="1"/>
-                                    </Ellipse.Effect>
-                                    <Ellipse.RenderTransform>
-                                        <TranslateTransform X="0"/>
-                                    </Ellipse.RenderTransform>
-                                </Ellipse>
-                            </Border>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="SwitchTrack" Property="Background" Value="{StaticResource AccentColor}"/>
-                                <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{StaticResource AccentColor}"/>
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="SwitchKnob" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="20" Duration="0:0:0.25">
-                                                <DoubleAnimation.EasingFunction>
-                                                    <PowerEase EasingMode="EaseOut" Power="3"/>
-                                                </DoubleAnimation.EasingFunction>
-                                            </DoubleAnimation>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="SwitchKnob" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="0" Duration="0:0:0.25">
-                                                <DoubleAnimation.EasingFunction>
-                                                    <PowerEase EasingMode="EaseOut" Power="3"/>
-                                                </DoubleAnimation.EasingFunction>
-                                            </DoubleAnimation>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Gradient Hero Button Style with Animations -->
-        <Style TargetType="Button" x:Key="HeroButton">
-            <Setter Property="Foreground" Value="#1A1B26"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
-            <Setter Property="RenderTransform">
-                <Setter.Value>
-                    <ScaleTransform ScaleX="1" ScaleY="1"/>
-                </Setter.Value>
-            </Setter>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" CornerRadius="8" Padding="20,10">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="{StaticResource AccentColorValue}" Offset="0"/>
-                                    <GradientStop Color="{StaticResource SecondaryAccentValue}" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Border.Background>
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="#1A1B26"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Opacity" Value="0.95"/>
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="1.03" Duration="0:0:0.2"/>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="1.03" Duration="0:0:0.2"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="1" Duration="0:0:0.2"/>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="1" Duration="0:0:0.2"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Opacity" Value="0.85"/>
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="0.97" Duration="0:0:0.05"/>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="0.97" Duration="0:0:0.05"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="1.03" Duration="0:0:0.1"/>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="1.03" Duration="0:0:0.1"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Small Hero Button Style (for Quick Actions) -->
-        <Style TargetType="Button" x:Key="SmallHeroButton" BasedOn="{StaticResource HeroButton}">
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" CornerRadius="6" Padding="15,8">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="{StaticResource AccentColorValue}" Offset="0"/>
-                                    <GradientStop Color="{StaticResource SecondaryAccentValue}" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Border.Background>
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="#1A1B26"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Opacity" Value="0.9"/>
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="1.05" Duration="0:0:0.2"/>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="1.05" Duration="0:0:0.2"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="1" Duration="0:0:0.2"/>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="1" Duration="0:0:0.2"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Opacity" Value="0.8"/>
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="0.95" Duration="0:0:0.05"/>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="0.95" Duration="0:0:0.05"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX" To="1.05" Duration="0:0:0.1"/>
-                                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" To="1.05" Duration="0:0:0.1"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Modern Progress Bar -->
-        <Style TargetType="ProgressBar" x:Key="ModernProgressBar">
-            <Setter Property="Height" Value="6"/>
-            <Setter Property="Background" Value="#414868"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ProgressBar">
-                        <Grid>
-                            <Border Name="PART_Track" CornerRadius="3" Background="{TemplateBinding Background}"/>
-                            <Border Name="PART_Indicator" CornerRadius="3" Background="{TemplateBinding Foreground}" HorizontalAlignment="Left"/>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Dashboard Card Style -->
-        <Style TargetType="Border" x:Key="DashboardCard">
-            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
-            <Setter Property="CornerRadius" Value="12"/>
-            <Setter Property="Padding" Value="20"/>
-            <Setter Property="Margin" Value="0,0,0,15"/>
-            <Setter Property="Effect">
-                <Setter.Value>
-                    <DropShadowEffect Color="Black" Opacity="0.2" BlurRadius="10" ShadowDepth="2"/>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-    </Window.Resources>
-
-    <Border Background="{StaticResource WindowBackground}" CornerRadius="10" BorderBrush="#24283B" BorderThickness="1">
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="250"/> <!-- Sidebar -->
-                <ColumnDefinition Width="*"/>   <!-- Content -->
-            </Grid.ColumnDefinitions>
-
-            <!-- Sidebar -->
-            <Border Grid.Column="0" Background="{StaticResource SidebarBackground}" CornerRadius="10,0,0,10">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <!-- App Title -->
-                    <StackPanel Grid.Row="0" Margin="25,40,25,40">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Ilumnul" FontSize="22" FontWeight="Bold" Foreground="White"/>
-                            <TextBlock Text="OS" FontSize="22" FontWeight="Light" Foreground="{StaticResource AccentColor}"/>
-                        </StackPanel>
-                        <TextBlock Text="Ultimate Edition" FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0"/>
-                    </StackPanel>
-
-                    <!-- Navigation -->
-                    <StackPanel Grid.Row="1">
-                        <RadioButton x:Name="navDashboard" Content="Dashboard" Tag="&#xE80F;" GroupName="Nav" Style="{StaticResource NavButton}" IsChecked="True"/>
-                        <RadioButton x:Name="navDebloat" Content="Debloat" Tag="&#xE74C;" GroupName="Nav" Style="{StaticResource NavButton}"/>
-                        <RadioButton x:Name="navGaming" Content="Gaming" Tag="&#xE7FC;" GroupName="Nav" Style="{StaticResource NavButton}"/>
-                        <RadioButton x:Name="navPrivacy" Content="Privacy" Tag="&#xE72E;" GroupName="Nav" Style="{StaticResource NavButton}"/>
-                        <RadioButton x:Name="navAI" Content="AI Control" Tag="&#xE946;" GroupName="Nav" Style="{StaticResource NavButton}"/>
-                        <RadioButton x:Name="navSettings" Content="Settings" Tag="&#xE713;" GroupName="Nav" Style="{StaticResource NavButton}"/>
-                        <RadioButton x:Name="navTerminal" Content="Terminal" Tag="&#xE756;" GroupName="Nav" Style="{StaticResource NavButton}"/>
-                    </StackPanel>
-                    
-                    <!-- Footer -->
-                    <TextBlock Grid.Row="2" Text="v2.0" HorizontalAlignment="Center" Foreground="{StaticResource TextSecondary}" Margin="20" FontSize="12"/>
-                </Grid>
-            </Border>
-
-            <!-- Main Content Area -->
-            <Grid Grid.Column="1" Margin="0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="40"/> <!-- Top Bar -->
-                    <RowDefinition Height="*"/>    <!-- Dynamic Content -->
-                </Grid.RowDefinitions>
-
-                <!-- Top Bar (Drag & Controls) -->
-                <Grid Grid.Row="0" Background="Transparent" x:Name="TopBar">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,10,0">
-                        <Button x:Name="btnMinimize" Content="&#xE921;" FontFamily="Segoe MDL2 Assets" Width="40" Height="30" Background="Transparent" Foreground="{StaticResource TextSecondary}" BorderThickness="0"/>
-                        <Button x:Name="btnClose" Content="&#xE8BB;" FontFamily="Segoe MDL2 Assets" Width="40" Height="30" Background="Transparent" Foreground="{StaticResource TextSecondary}" BorderThickness="0">
-                             <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}" CornerRadius="4">
-                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Border>
-                                                <ControlTemplate.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter Property="Background" Value="#F7768E"/>
-                                                        <Setter Property="Foreground" Value="White"/>
-                                                    </Trigger>
-                                                </ControlTemplate.Triggers>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-                    </StackPanel>
-                </Grid>
-
-                <!-- Content Views -->
-                <Grid Grid.Row="1" Margin="30,0,30,30">
-                    
-                    <!-- Dashboard View -->
-                    <StackPanel x:Name="viewDashboard" Visibility="Visible">
-                        <StackPanel.RenderTransform>
-                            <TranslateTransform X="0" Y="0"/>
-                        </StackPanel.RenderTransform>
-                        <StackPanel.Triggers>
-                            <EventTrigger RoutedEvent="Loaded">
-                                <BeginStoryboard Storyboard="{StaticResource FadeInContent}"/>
-                            </EventTrigger>
-                        </StackPanel.Triggers>
-                        
-                        <Grid Margin="0,0,0,20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="Welcome back, User" FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,5"/>
-                                <TextBlock x:Name="txtOsVersion" Text="Windows 11 Pro - 23H2" FontSize="14" Foreground="{StaticResource TextSecondary}"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
-                                <TextBlock Text="System Ready" FontSize="12" Foreground="{StaticResource AccentColor}" HorizontalAlignment="Right"/>
-                            </StackPanel>
-                        </Grid>
-
-                        <!-- Hardware Cards Grid -->
-                        <Grid Margin="0,0,0,20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            
-                            <!-- CPU Card (Row 0, Col 0) -->
-                            <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource DashboardCard}" Margin="0,0,10,15">
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="*"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                        <TextBlock Text="&#xE950;" FontFamily="Segoe MDL2 Assets" FontSize="20" Foreground="{Binding Source=$cpuColor}" Margin="0,0,10,0"/>
-                                        <TextBlock Text="PROCESSOR" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Row="1" x:Name="txtCpuName" Text="Detecting CPU..." FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap" Margin="0,0,0,5"/>
-                                </Grid>
-                            </Border>
-                            
-                            <!-- GPU Card (Row 0, Col 1) -->
-                            <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource DashboardCard}" Margin="10,0,0,15">
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="*"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                        <TextBlock Text="&#xE7F5;" FontFamily="Segoe MDL2 Assets" FontSize="20" Foreground="{Binding Source=$gpuColor}" Margin="0,0,10,0"/>
-                                        <TextBlock Text="GRAPHICS" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Row="1" x:Name="txtGpuName" Text="Detecting GPU..." FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap" Margin="0,0,0,15"/>
-                                    <StackPanel Grid.Row="2">
-                                        <TextBlock x:Name="txtGpuDetail" Text="Resolution: Detecting..." FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,5"/>
-                                        <TextBlock x:Name="txtGpuDriver" Text="Driver: Detecting..." FontSize="12" Foreground="{StaticResource TextSecondary}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-                            
-                            <!-- RAM Card (Row 1, Col 0) -->
-                            <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource DashboardCard}" Margin="0,0,10,15">
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
-                                        <TextBlock Text="&#xE967;" FontFamily="Segoe MDL2 Assets" FontSize="20" Foreground="{StaticResource AccentColor}" Margin="0,0,10,0"/>
-                                        <TextBlock Text="MEMORY (RAM)" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1">
-                                        <TextBlock x:Name="txtRamDetail" Text="0 GB Total" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-
-                            <!-- Disk Card (Row 1, Col 1) -->
-                            <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource DashboardCard}" Margin="10,0,0,15">
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
-                                        <TextBlock Text="&#xEDA2;" FontFamily="Segoe MDL2 Assets" FontSize="20" Foreground="{StaticResource SecondaryAccent}" Margin="0,0,10,0"/>
-                                        <TextBlock Text="SYSTEM DRIVE (C:)" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Row="1">
-                                         <TextBlock x:Name="txtDiskDetail" Text="Drive C: Detected" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-                        </Grid>
-                        
-                        <!-- Hero Section -->
-                        <Border Background="{StaticResource CardBackground}" CornerRadius="16" Padding="30">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                    <TextBlock Text="Optimize Your PC" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,5"/>
-                                    <TextBlock Text="One-click performance boost &amp; cleanup." FontSize="13" Foreground="{StaticResource TextSecondary}"/>
-                                </StackPanel>
-                                <Button Grid.Column="1" x:Name="btnOneClick" Content="ONE-CLICK OPTIMIZE" Style="{StaticResource HeroButton}" MinWidth="180" Padding="20,10"/>
-                            </Grid>
-                        </Border>
-
-                        <TextBlock x:Name="txtStatus" Text="Ready" Foreground="{StaticResource TextSecondary}" FontSize="12" Margin="0,15,0,0" HorizontalAlignment="Center"/>
-                    </StackPanel>
-
-                    <!-- Debloat View -->
-                    <StackPanel x:Name="viewDebloat" Visibility="Collapsed">
-                        <StackPanel.RenderTransform>
-                            <TranslateTransform X="0" Y="0"/>
-                        </StackPanel.RenderTransform>
-                        <TextBlock Text="Debloater" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,20"/>
-                        <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="20">
-                            <StackPanel>
-                                <TextBlock Text="Apps &amp; Packages" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="0,0,0,10"/>
-                                <CheckBox x:Name="chkRemoveAppx" Content="Remove Default Bloatware Apps" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkRemoveOneDrive" Content="Uninstall OneDrive" Style="{StaticResource ToggleSwitch}"/>
-                                <CheckBox x:Name="chkRemoveCortana" Content="Disable Cortana" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                
-                                <TextBlock Text="Services" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="0,20,0,10"/>
-                                <CheckBox x:Name="chkDisableServices" Content="Disable Unnecessary Services" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                
-                                <Button x:Name="btnRunDebloat" Content="Apply Debloat Selection" Style="{StaticResource HeroButton}" MinWidth="200" HorizontalAlignment="Left" Margin="0,20,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-
-                    <!-- Gaming View -->
-                    <StackPanel x:Name="viewGaming" Visibility="Collapsed">
-                        <StackPanel.RenderTransform>
-                            <TranslateTransform X="0" Y="0"/>
-                        </StackPanel.RenderTransform>
-                        <TextBlock Text="Gaming Optimization" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,20"/>
-                        <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="20">
-                            <StackPanel>
-                                <TextBlock Text="Performance Tweaks" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="0,0,0,10"/>
-                                <CheckBox x:Name="chkGameMode" Content="Force Enable Game Mode" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkGPUPriority" Content="Set GPU Priority to High" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkDisableGameBar" Content="Disable Xbox Game Bar" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkHAGS" Content="Enable HAGS (Hardware Scheduling)" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                
-                                <TextBlock Text="Network" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="0,20,0,10"/>
-                                <CheckBox x:Name="chkNetworkTweaks" Content="Optimize Network (TCP NoDelay)" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                
-                                <Button x:Name="btnRunGaming" Content="Boost Gaming Performance" Style="{StaticResource HeroButton}" MinWidth="220" HorizontalAlignment="Left" Margin="0,20,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-
-                    <!-- Privacy View -->
-                    <StackPanel x:Name="viewPrivacy" Visibility="Collapsed">
-                        <StackPanel.RenderTransform>
-                            <TranslateTransform X="0" Y="0"/>
-                        </StackPanel.RenderTransform>
-                        <TextBlock Text="Privacy &amp; Security" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,20"/>
-                        <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="20">
-                            <StackPanel>
-                                <TextBlock Text="Telemetry &amp; Tracking" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="0,0,0,10"/>
-                                <CheckBox x:Name="chkDisableTelemetry" Content="Disable Telemetry &amp; Data Collection" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkDisableAdvertising" Content="Disable Advertising ID &amp; Suggestions" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkDisableLocation" Content="Disable Location Tracking" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                
-                                <Button x:Name="btnRunPrivacy" Content="Apply Privacy Tweaks" Style="{StaticResource HeroButton}" MinWidth="200" HorizontalAlignment="Left" Margin="0,20,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-
-                    <!-- AI Control View -->
-                    <StackPanel x:Name="viewAI" Visibility="Collapsed">
-                        <StackPanel.RenderTransform>
-                            <TranslateTransform X="0" Y="0"/>
-                        </StackPanel.RenderTransform>
-                        <TextBlock Text="AI Control Center" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,20"/>
-                        <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="20">
-                            <StackPanel>
-                                <TextBlock Text="Windows Intelligence &amp; Copilot" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="0,0,0,10"/>
-                                <TextBlock Text="Completely remove AI components from Windows 11." Foreground="{StaticResource TextSecondary}" Margin="0,0,0,15" TextWrapping="Wrap"/>
-                                
-                                <CheckBox x:Name="chkDisableCopilot" Content="Disable Windows Copilot &amp; Bing Chat" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkDisableRecall" Content="Disable Windows Recall (Snapshots)" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkDisableOfficeAI" Content="Remove AI from Office &amp; Edge" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                
-                                <Button x:Name="btnRunAI" Content="Nuke AI Components" Style="{StaticResource HeroButton}" MinWidth="200" HorizontalAlignment="Left" Margin="0,20,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-
-                    <!-- Settings View (System) -->
-                    <StackPanel x:Name="viewSettings" Visibility="Collapsed">
-                        <StackPanel.RenderTransform>
-                            <TranslateTransform X="0" Y="0"/>
-                        </StackPanel.RenderTransform>
-                        <TextBlock Text="System Settings" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,20"/>
-                        <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="20" Margin="0,0,0,20">
-                            <StackPanel>
-                                <TextBlock Text="General Optimizations" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentColor}" Margin="0,0,0,10"/>
-                                <CheckBox x:Name="chkPowerPlan" Content="Enable Ultimate Performance Plan" Style="{StaticResource ToggleSwitch}" IsChecked="True"/>
-                                <CheckBox x:Name="chkDisableHibernation" Content="Disable Hibernation" Style="{StaticResource ToggleSwitch}"/>
-                                <CheckBox x:Name="chkDisableSearchIndexing" Content="Disable Search Indexing" Style="{StaticResource ToggleSwitch}"/>
-                                <CheckBox x:Name="chkVisualEffects" Content="Disable Visual Effects" Style="{StaticResource ToggleSwitch}"/>
-                                
-                                <Button x:Name="btnRunOptimize" Content="Apply System Tweaks" Style="{StaticResource HeroButton}" MinWidth="200" HorizontalAlignment="Left" Margin="0,20,0,0"/>
-                            </StackPanel>
-                        </Border>
-                        
-                        <TextBlock Text="Quick Actions" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,10"/>
-                        <WrapPanel>
-                             <Button x:Name="btnCleanTemp" Content="Clean Temp" Style="{StaticResource SmallHeroButton}" MinWidth="120" Margin="0,0,10,10"/>
-                             <Button x:Name="btnRestartExplorer" Content="Restart Explorer" Style="{StaticResource SmallHeroButton}" MinWidth="120" Margin="0,0,10,10"/>
-                             <Button x:Name="btnFlushDNS" Content="Flush DNS" Style="{StaticResource SmallHeroButton}" MinWidth="120" Margin="0,0,10,10"/>
-                        </WrapPanel>
-                    </StackPanel>
-
-                    <!-- Terminal View -->
-                    <StackPanel x:Name="viewTerminal" Visibility="Collapsed">
-                        <StackPanel.RenderTransform>
-                            <TranslateTransform X="0" Y="0"/>
-                        </StackPanel.RenderTransform>
-                        <TextBlock Text="Terminal Output" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" Margin="0,0,0,20"/>
-                        <Border Background="Black" CornerRadius="12" Padding="15" Height="400" BorderBrush="#24283B" BorderThickness="1">
-                             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <TextBlock x:Name="txtTerminalOutput" Text="IlumnulOS Terminal v2.0`nReady..." FontFamily="Consolas" FontSize="14" Foreground="#00FF00" TextWrapping="Wrap"/>
-                            </ScrollViewer>
-                        </Border>
-                        <Button x:Name="btnClearTerminal" Content="Clear Log" Style="{StaticResource HeroButton}" HorizontalAlignment="Right" Width="100" Margin="0,10,0,0"/>
-                    </StackPanel>
-
-                </Grid>
-            </Grid>
-        </Grid>
-    </Border>
-</Window>
-"@
-
-# Update XAML string with dynamic values
-$xamlString = $xamlString.Replace("Welcome back, User", "Welcome back, $env:USERNAME")
-# $xamlString = $xamlString.Replace('{Binding Source=$cpuColor}', $cpuColor) # Not using binding anymore, but if we did
-# $xamlString = $xamlString.Replace('{Binding Source=$gpuColor}', $gpuColor)
-
 try {
-    $sr = New-Object System.IO.StringReader($xamlString)
+    $xamlContent = Get-Content -Path $XamlPath -Raw
+    # Update dynamic content (username) before parsing
+    $xamlContent = $xamlContent.Replace("Welcome back, User", "Welcome back, $env:USERNAME")
+    
+    $sr = New-Object System.IO.StringReader($xamlContent)
     $reader = [System.Xml.XmlReader]::Create($sr)
     $window = [Windows.Markup.XamlReader]::Load($reader)
     $sr.Close()
@@ -693,10 +48,101 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# Initialize UI Elements & Events
+# Async Execution Helper
 # -----------------------------------------------------------------------------
+function Start-AsyncOperation {
+    param(
+        [ScriptBlock]$ScriptBlock,
+        [string]$SuccessMessage = "Operation Completed.",
+        [switch]$ShowTerminal = $true
+    )
+
+    if ($ShowTerminal) {
+        Switch-View "Terminal"
+        $window.FindName("navTerminal").IsChecked = $true
+    }
+
+    # Create a synchronized hashtable for thread-safe logging
+    $syncHash = [Hashtable]::Synchronized(@{})
+    $syncHash.Window = $window
+    $syncHash.OutputBox = $window.FindName("txtTerminalOutput")
+    $syncHash.StatusBox = $window.FindName("txtStatus")
+
+    # Define the logger scriptblock (Not used in async, but defined for reference or fallback)
+    $loggerBlock = {
+        param($msg)
+        # Empty placeholder as we use internal log function in runspace
+    }
+
+    # Create the runspace
+    # Use InitialSessionState.CreateDefault() to ensure all system modules (Appx, Dism, etc.) are loaded
+    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $rs = [PowerShell]::Create($iss)
+    
+    # Add necessary modules and functions to the runspace
+    # We need to import the modules inside the runspace or define the functions
+    # Since modules are .psm1 files, we can import them by path
+    $modulePath = $global:ScriptPath # Pass the script path
+    if (-not $modulePath) { $modulePath = $PWD.Path }
+    
+    $rs.AddScript({
+        param($Path, $SyncHash, $Task, $SuccessMsg)
+
+        # Import system modules to ensure commands are available in the Runspace
+        Import-Module Appx -ErrorAction SilentlyContinue
+        Import-Module ScheduledTasks -ErrorAction SilentlyContinue
+        Import-Module Dism -ErrorAction SilentlyContinue
+        Import-Module Storage -ErrorAction SilentlyContinue
+        Import-Module NetAdapter -ErrorAction SilentlyContinue
+        Import-Module DnsClient -ErrorAction SilentlyContinue
+        Import-Module Defender -ErrorAction SilentlyContinue
+        
+        # Define Log function inside runspace that calls back to UI
+        function Log($msg) {
+            $timestamp = Get-Date -Format "HH:mm:ss"
+            $SyncHash.Window.Dispatcher.Invoke([Action]{
+                if ($SyncHash.OutputBox) {
+                    $SyncHash.OutputBox.Text += "[$timestamp] $msg`n"
+                    if ($SyncHash.OutputBox.Parent -is [System.Windows.Controls.ScrollViewer]) {
+                        $SyncHash.OutputBox.Parent.ScrollToBottom()
+                    }
+                }
+                if ($SyncHash.StatusBox) { $SyncHash.StatusBox.Text = $msg }
+            })
+        }
+        
+        # Create a proxy scriptblock for the module functions to use
+        $LoggerProxy = { param($m) Log $m }
+        
+        try {
+            if (-not $Path) {
+                throw "Module path is null. Cannot import modules."
+            }
+
+            # Import Modules
+            $modules = @("Debloat.psm1", "Gaming.psm1", "Optimize.psm1", "RemoveAI.psm1")
+            foreach ($m in $modules) {
+                $p = Join-Path $Path "Modules\$m"
+                if (Test-Path $p) { Import-Module $p -Force }
+            }
+            
+            # Execute the task
+            Log "Starting Operation..."
+            & $Task -Logger $LoggerProxy
+            Log $SuccessMsg
+            
+        } catch {
+            Log "ERROR: $_"
+        }
+    }).AddArgument($modulePath).AddArgument($syncHash).AddArgument($ScriptBlock).AddArgument($SuccessMessage)
+
+    # Run async
+    $rs.BeginInvoke()
+}
+
 try {
     $window.FindName("TopBar").Add_MouseLeftButtonDown({ $window.DragMove() })
+
     
     $btnMinimize = $window.FindName("btnMinimize")
     if ($btnMinimize) { $btnMinimize.Add_Click({ $window.WindowState = "Minimized" }) }
@@ -712,6 +158,24 @@ try {
     $txtRamDetail = $window.FindName("txtRamDetail")
     $txtDiskDetail = $window.FindName("txtDiskDetail")
     $txtOsVersion = $window.FindName("txtOsVersion")
+
+    # Gather Hardware Info
+    $hwInfo = @{}
+    try {
+        $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+        $hwInfo.CPU = $cpu.Name
+        
+        $gpu = Get-CimInstance Win32_VideoController | Select-Object -First 1
+        $hwInfo.GPU = $gpu.Name
+        
+        $os = Get-CimInstance Win32_OperatingSystem
+        $totalRamGB = [math]::Round($os.TotalVisibleMemorySize / 1MB / 1024, 0)
+        $hwInfo.RAM = "$totalRamGB GB"
+    } catch {
+        $hwInfo.CPU = "Unknown CPU"
+        $hwInfo.GPU = "Unknown GPU"
+        $hwInfo.RAM = "Unknown RAM"
+    }
 
     # Set Static Data (Names & OS)
     if ($txtCpuName) { $txtCpuName.Text = $hwInfo.CPU }
@@ -736,6 +200,109 @@ try {
              $txtDiskDetail.Text = "Drive C: $totalDisk GB Total"
         }
     } catch {}
+
+    # -----------------------------------------------------------------------------
+    # Real-Time Stats (Background Threading to prevent UI Lag)
+    # -----------------------------------------------------------------------------
+    
+    # Synchronized Hashtable for thread-safe data exchange
+    $syncHash = [Hashtable]::Synchronized(@{})
+    $syncHash.CpuLoad = "0"
+    $syncHash.CpuDetail = "Detecting..."
+    $syncHash.RamDetail = "Detecting..."
+    $syncHash.RamLoad = "0"
+    $syncHash.RamPercent = 0
+    $syncHash.DiskDetail = "Detecting..."
+    $syncHash.DiskLoad = "0"
+    $syncHash.DiskPercent = 0
+    $syncHash.Uptime = "00:00:00"
+    $syncHash.Run = $true
+
+    # Create Runspace for background worker
+    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $runspace = [PowerShell]::Create($iss).AddScript({
+        param($sync)
+        
+        # Import modules for hardware monitoring
+        Import-Module CimCmdlets -ErrorAction SilentlyContinue
+        Import-Module Storage -ErrorAction SilentlyContinue
+
+        while ($sync.Run) {
+            try {
+                # CPU Stats (Fastest way using CIM)
+                $cpu = Get-CimInstance Win32_Processor
+                $load = $cpu.LoadPercentage
+                $sync.CpuLoad = "$load%"
+                $sync.CpuRaw = $load
+                $sync.CpuDetail = "$($cpu.NumberOfCores) Cores / $($cpu.NumberOfLogicalProcessors) Threads @ $([math]::Round($cpu.MaxClockSpeed/1000, 2)) GHz"
+
+                # RAM Stats
+                $os = Get-CimInstance Win32_OperatingSystem
+                $totalRam = $os.TotalVisibleMemorySize / 1MB
+                $freeRam = $os.FreePhysicalMemory / 1MB
+                $usedRam = $totalRam - $freeRam
+                $ramPercent = [math]::Round(($usedRam / $totalRam) * 100, 0)
+                
+                $sync.RamDetail = "$([math]::Round($usedRam, 1)) GB / $([math]::Round($totalRam, 1)) GB"
+                $sync.RamLoad = "$ramPercent%"
+                $sync.RamPercent = $ramPercent
+
+                # Disk Stats (C:)
+                $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+                if ($disk) {
+                    $totalDisk = $disk.Size / 1GB
+                    $freeDisk = $disk.FreeSpace / 1GB
+                    $usedDisk = $totalDisk - $freeDisk
+                    $diskPercent = [math]::Round(($usedDisk / $totalDisk) * 100, 0)
+                    
+                    $sync.DiskDetail = "$([math]::Round($freeDisk, 1)) GB Free / $([math]::Round($totalDisk, 0)) GB"
+                    $sync.DiskLoad = "$diskPercent%"
+                    $sync.DiskPercent = $diskPercent
+                }
+
+                # Uptime
+                $uptime = (Get-Date) - $os.LastBootUpTime
+                $sync.Uptime = "{0:dd}d {0:hh}h {0:mm}m" -f $uptime
+                
+            } catch {
+                # Log error or ignore
+            }
+            
+            # Sleep to prevent high CPU usage from the monitoring thread itself
+            Start-Sleep -Seconds 2
+        }
+    }).AddArgument($syncHash)
+    
+    # Start the background thread
+    $asyncResult = $runspace.BeginInvoke()
+
+    # UI Timer - ONLY updates UI from the synchronized hashtable (Lightweight)
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromSeconds(1)
+    $timer.Add_Tick({
+        try {
+            if ($txtCpuLoad) { $txtCpuLoad.Text = $syncHash.CpuLoad }
+            if ($pbCpu) { $pbCpu.Value = $syncHash.CpuRaw }
+            if ($txtCpuDetail) { $txtCpuDetail.Text = $syncHash.CpuDetail }
+
+            if ($txtRamDetail) { $txtRamDetail.Text = $syncHash.RamDetail }
+            if ($txtRamLoad) { $txtRamLoad.Text = $syncHash.RamLoad }
+            if ($pbRam) { $pbRam.Value = $syncHash.RamPercent }
+
+            if ($txtDiskDetail) { $txtDiskDetail.Text = $syncHash.DiskDetail }
+            if ($txtDiskLoad) { $txtDiskLoad.Text = $syncHash.DiskLoad }
+            if ($pbDisk) { $pbDisk.Value = $syncHash.DiskPercent }
+
+            if ($txtUptime) { $txtUptime.Text = $syncHash.Uptime }
+        } catch { }
+    })
+    $timer.Start()
+
+    # Cleanup on Close
+    $window.Add_Closed({
+        $syncHash.Run = $false
+        if ($timer) { $timer.Stop() }
+    })
 
     # Navigation
     $views = @{
@@ -796,6 +363,7 @@ try {
     $btnOneClick = $window.FindName("btnOneClick")
     $btnRunDebloat = $window.FindName("btnRunDebloat")
     $btnRunGaming = $window.FindName("btnRunGaming")
+    $btnNvidiaProfile = $window.FindName("btnNvidiaProfile")
     $btnRunPrivacy = $window.FindName("btnRunPrivacy")
     $btnRunAI = $window.FindName("btnRunAI")
     $btnRunOptimize = $window.FindName("btnRunOptimize")
@@ -804,67 +372,63 @@ try {
 
     if ($btnRunDebloat) {
         $btnRunDebloat.Add_Click({
-            Switch-View "Terminal"
-            $window.FindName("navTerminal").IsChecked = $true
-            Log-Message "Starting Debloat..."
-            Remove-Bloatware -LogCallback $logAction
-            Log-Message "Debloat Finished."
+            if ([System.Windows.MessageBox]::Show("This will remove pre-installed apps and disable services. Continue?", "Confirm Debloat", "YesNo", "Warning") -eq "Yes") {
+                Start-AsyncOperation -ScriptBlock { param($Logger) Remove-Bloatware -Logger $Logger } -SuccessMessage "Debloat Finished."
+            }
         })
     }
     
     if ($btnRunGaming) {
         $btnRunGaming.Add_Click({
-            Switch-View "Terminal"
-            $window.FindName("navTerminal").IsChecked = $true
-            Log-Message "Starting Gaming Boost..."
-            Invoke-GamingOptimization -LogCallback $logAction
-            Log-Message "Gaming Boost Finished."
+            if ([System.Windows.MessageBox]::Show("This will apply gaming optimizations and power plans. Continue?", "Confirm Gaming Boost", "YesNo", "Information") -eq "Yes") {
+                Start-AsyncOperation -ScriptBlock { param($Logger) Invoke-GamingOptimization -Logger $Logger } -SuccessMessage "Gaming Boost Finished."
+            }
+        })
+    }
+
+    if ($btnNvidiaProfile) {
+        $btnNvidiaProfile.Add_Click({
+            if ([System.Windows.MessageBox]::Show("This will download and apply a custom NVIDIA Profile. Continue?", "Confirm NVIDIA Profile", "YesNo", "Information") -eq "Yes") {
+                Start-AsyncOperation -ScriptBlock { param($Logger) Invoke-NvidiaProfile -Logger $Logger } -SuccessMessage "NVIDIA Profile Process Finished."
+            }
         })
     }
 
     if ($btnRunPrivacy) {
         $btnRunPrivacy.Add_Click({
-            Switch-View "Terminal"
-            $window.FindName("navTerminal").IsChecked = $true
-            Log-Message "Applying Privacy Tweaks..."
-            # Re-using Debloat module as it contains privacy tweaks
-            # Ideally this should be separated, but calling Remove-Bloatware covers it for now
-            Remove-Bloatware -LogCallback $logAction 
-            Log-Message "Privacy Tweaks Applied."
+            if ([System.Windows.MessageBox]::Show("This will disable telemetry and tracking features. Continue?", "Confirm Privacy", "YesNo", "Information") -eq "Yes") {
+                Start-AsyncOperation -ScriptBlock { param($Logger) Remove-Bloatware -Logger $Logger } -SuccessMessage "Privacy Tweaks Applied."
+            }
         })
     }
 
     if ($btnRunAI) {
         $btnRunAI.Add_Click({
-            Switch-View "Terminal"
-            $window.FindName("navTerminal").IsChecked = $true
-            Log-Message "Initiating AI Removal Protocols..."
-            Remove-WindowsAI -LogCallback $logAction
-            Log-Message "AI Removal Complete."
-            [System.Windows.MessageBox]::Show("AI Components Removed!", "IlumnulOS", "OK", "Information")
+            if ([System.Windows.MessageBox]::Show("WARNING: This will permanently remove Copilot, Recall, and AI components. This action is aggressive. Continue?", "Confirm AI Removal", "YesNo", "Warning") -eq "Yes") {
+                Start-AsyncOperation -ScriptBlock { param($Logger) Remove-WindowsAI -Logger $Logger } -SuccessMessage "AI Removal Complete."
+            }
         })
     }
 
     if ($btnRunOptimize) {
         $btnRunOptimize.Add_Click({
-            Switch-View "Terminal"
-            $window.FindName("navTerminal").IsChecked = $true
-            Log-Message "Applying System Optimizations..."
-            Invoke-SystemOptimization -LogCallback $logAction
-            Log-Message "System Optimization Finished."
+            if ([System.Windows.MessageBox]::Show("This will apply general system performance tweaks. Continue?", "Confirm Optimization", "YesNo", "Information") -eq "Yes") {
+                Start-AsyncOperation -ScriptBlock { param($Logger) Invoke-SystemOptimization -Logger $Logger } -SuccessMessage "System Optimization Finished."
+            }
         })
     }
 
     if ($btnOneClick) {
         $btnOneClick.Add_Click({
-            Switch-View "Terminal"
-            $window.FindName("navTerminal").IsChecked = $true
-            Log-Message ">>> STARTING ONE-CLICK OPTIMIZATION <<<"
-            Invoke-SystemOptimization -LogCallback $logAction
-            Invoke-GamingOptimization -LogCallback $logAction
-            Remove-Bloatware -LogCallback $logAction
-            Log-Message ">>> ONE-CLICK OPTIMIZATION COMPLETE <<<"
-            [System.Windows.MessageBox]::Show("Optimization Complete!", "IlumnulOS", "OK", "Information")
+            if ([System.Windows.MessageBox]::Show("ONE-CLICK MODE: This will run ALL optimizations (Debloat, Gaming, AI Removal, System). This may take a while. Are you sure?", "Confirm One-Click", "YesNo", "Warning") -eq "Yes") {
+                Start-AsyncOperation -ScriptBlock { 
+                    param($Logger) 
+                    Invoke-SystemOptimization -Logger $Logger
+                    Invoke-GamingOptimization -Logger $Logger
+                    Remove-Bloatware -Logger $Logger
+                    Remove-WindowsAI -Logger $Logger
+                } -SuccessMessage "One-Click Optimization Complete."
+            }
         })
     }
 
@@ -896,5 +460,17 @@ if ($window) {
         $window.ShowDialog() | Out-Null
     } catch {
         Write-Error "CRITICAL ERROR: Failed to show window dialog. $_"
+    } finally {
+        # Cleanup background resources after window closes to prevent UI freeze
+        if ($syncHash) { $syncHash.Run = $false }
+        
+        if ($runspace) {
+            try {
+                if ($runspace.InvocationStateInfo.State -eq 'Running') {
+                    $runspace.Stop()
+                }
+                $runspace.Dispose()
+            } catch {}
+        }
     }
 }
