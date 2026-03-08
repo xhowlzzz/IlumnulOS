@@ -1,0 +1,11 @@
+{
+    "Tools": {
+        "NvidiaInspector": {
+            "Url": "https://github.com/Orbmu2k/nvidiaProfileInspector/releases/download/2.4.0.19/nvidiaProfileInspector.zip",
+            "Hash": "EA7C6B7F3F3606677860B7880D3C3D7800703666666666666666666666666666" 
+        },
+        "IlumnulProfile": {
+            "Url": "https://github.com/xhowlzzz/IlumnulOS/raw/main/Tools/IlumnulOS.nip"
+        }
+    }
+}
