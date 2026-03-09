@@ -114,12 +114,15 @@ function Start-AsyncOperation {
     }
 
     # Create the runspace
-    # Use InitialSessionState.CreateDefault() to ensure all system modules (Appx, Dism, etc.) are loaded
+    # In 'irm | iex' scenarios, default session states are often broken.
+    # We must explicitly add the cmdlets we need instead of relying on module auto-loading.
     $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-    # Explicitly import modules into the session state before creating the runspace
-    foreach ($m in @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender")) {
-        $iss.ImportPSModule($m)
-    }
+    
+    # Import modules into the session state using ImportPSModule is unreliable in 'irm' context.
+    # We will try to add the core cmdlets we need directly if modules fail.
+    # However, the most robust way is to re-import them inside the scriptblock with full paths if possible.
+    # Since we can't easily get full paths in a temp session, we rely on Import-Module.
+    
     $rs = [PowerShell]::Create($iss)
     
     # Add necessary modules and functions to the runspace
@@ -135,9 +138,8 @@ function Start-AsyncOperation {
         # Force import by full name if possible, or skip error check to see real failure
         $modules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender")
         foreach ($mod in $modules) {
-            if (Get-Module -ListAvailable $mod) {
-                Import-Module $mod -Force -ErrorAction SilentlyContinue
-            }
+            # Try importing without checking ListAvailable first, as ListAvailable can fail in restricted runspaces
+            Import-Module $mod -Force -ErrorAction SilentlyContinue
         }
         
         # Define Log function inside runspace that calls back to UI
