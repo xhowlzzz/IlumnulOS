@@ -339,10 +339,18 @@ function Invoke-NvidiaProfile {
 
     if ($global:IlumnulRoot) {
         $ScriptPath = $global:IlumnulRoot
+    } elseif ($env:TEMP -and (Test-Path "$env:TEMP\IlumnulOS_v2")) {
+        # Fallback for remote execution if global var lost
+        $ScriptPath = "$env:TEMP\IlumnulOS_v2"
     } else {
         $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
     }
     
+    if (-not $ScriptPath) {
+        Log "ERROR: Could not determine script path. Aborting."
+        return
+    }
+
     $ConfigPath = Join-Path -Path $ScriptPath -ChildPath "Config\settings.json"
     
     if (!(Test-Path $ConfigPath)) {
