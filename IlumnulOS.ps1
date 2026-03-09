@@ -215,6 +215,10 @@ function Start-AsyncOperation {
             Log "WARNING: Get-AppxProvisionedPackage missing. Attempting blind import..."
             Import-Module Dism -Force -ErrorAction SilentlyContinue
         }
+        if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+            Log "WARNING: Get-ScheduledTask missing. Attempting blind import..."
+            Import-Module ScheduledTasks -Force -ErrorAction SilentlyContinue
+        }
 
         # Define Log function inside runspace that calls back to UI
         function Log($msg) {
