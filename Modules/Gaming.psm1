@@ -337,8 +337,13 @@ function Invoke-NvidiaProfile {
 
     Log "Applying NVIDIA Inspector Profile..."
 
-    $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-    $ConfigPath = Join-Path -Path $ScriptPath -ChildPath "..\Config\settings.json"
+    if ($global:IlumnulRoot) {
+        $ScriptPath = $global:IlumnulRoot
+    } else {
+        $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+    }
+    
+    $ConfigPath = Join-Path -Path $ScriptPath -ChildPath "Config\settings.json"
     
     if (!(Test-Path $ConfigPath)) {
         Log "Error: Config file not found at $ConfigPath"
