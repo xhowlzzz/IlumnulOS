@@ -104,13 +104,15 @@ function Remove-WindowsAI {
     # =========================================================================
     Log "--- Phase 3: Package Removal ---"
     
-    # Ensure Appx module is available
+    # Ensure Appx and Dism modules are available
     if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
         Log "Warning: Get-AppxPackage not found. Attempting to load Appx module..."
         Import-Module Appx -Force -ErrorAction SilentlyContinue
-        if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
-            Log "CRITICAL: Appx module failed to load. Package removal will be skipped."
-        }
+    }
+    
+    if (-not (Get-Command Get-AppxProvisionedPackage -ErrorAction SilentlyContinue)) {
+        Log "Warning: Get-AppxProvisionedPackage not found. Attempting to load Dism module..."
+        Import-Module Dism -Force -ErrorAction SilentlyContinue
     }
 
     $aiPackages = @(
