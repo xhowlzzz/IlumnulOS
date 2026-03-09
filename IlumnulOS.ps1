@@ -48,12 +48,26 @@ if (-not $ScriptPath) {
                 
                 Write-Host "Downloading $RemotePath..." -NoNewline
                 
-                # Use WebClient for better compatibility if Invoke-WebRequest fails or is slow
-                $wc = New-Object System.Net.WebClient
-                $wc.Headers.Add("User-Agent", "PowerShell")
-                $wc.DownloadFile("$RepoUrl/$RemotePath?v=$cb", $LocalPath)
-                
-                Write-Host " [OK]" -ForegroundColor Green
+                $fullUrl = "$RepoUrl/$RemotePath?v=$cb"
+                # Write-Host " [DEBUG: URL=$fullUrl] " -NoNewline -ForegroundColor DarkGray
+
+                try {
+                    # Primary Method: WebClient with User-Agent
+                    $wc = New-Object System.Net.WebClient
+                    $wc.Headers.Add("User-Agent", "PowerShell IlumnulOS Bootstrapper")
+                    $wc.DownloadFile($fullUrl, $LocalPath)
+                    Write-Host " [OK]" -ForegroundColor Green
+                } catch {
+                    # Fallback Method 1: Invoke-WebRequest (No Cache Buster)
+                    try {
+                        $fallbackUrl = "$RepoUrl/$RemotePath"
+                        # Write-Host " [Retry without cache buster] " -NoNewline -ForegroundColor Yellow
+                        Invoke-WebRequest -Uri $fallbackUrl -OutFile $LocalPath -ErrorAction Stop
+                        Write-Host " [OK (Fallback)]" -ForegroundColor Green
+                    } catch {
+                        throw $_ # Re-throw original or fallback error
+                    }
+                }
             } catch {
                 Write-Host " [FAILED]" -ForegroundColor Red
                 Write-Error "Failed to download $RemotePath. Details: $_"
