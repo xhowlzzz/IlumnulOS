@@ -1,10 +1,18 @@
 # Gaming Module
 function Invoke-GamingOptimization {
-    param([Action[string]]$Logger)
+    param(
+        [Action[string]]$Logger,
+        [hashtable]$Options = @{}
+    )
     
     function Log($msg) { if ($Logger) { $Logger.Invoke($msg) } else { Write-Host $msg } }
 
     Log "Starting Gaming Tweaks..."
+    $EnableGameMode = if ($Options.ContainsKey("GameMode")) { [bool]$Options.GameMode } else { $true }
+    $EnableGpuPriority = if ($Options.ContainsKey("GPUPriority")) { [bool]$Options.GPUPriority } else { $true }
+    $DisableGameBar = if ($Options.ContainsKey("DisableGameBar")) { [bool]$Options.DisableGameBar } else { $true }
+    $EnableHags = if ($Options.ContainsKey("HAGS")) { [bool]$Options.HAGS } else { $true }
+    $EnableNetworkTweaks = if ($Options.ContainsKey("NetworkTweaks")) { [bool]$Options.NetworkTweaks } else { $true }
 
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
@@ -29,6 +37,7 @@ function Invoke-GamingOptimization {
     # 1. NETWORK OPTIMIZATION (Latency & Throughput)
     # Impact: Advanced | Benefit: Lower ping, reduced packet loss
     # =========================================================================
+    if ($EnableNetworkTweaks) {
     Log "Applying Network Optimizations..."
     
     # Global TCP Settings
@@ -128,6 +137,7 @@ function Invoke-GamingOptimization {
         Set-Reg $key "FatChannelIntolerant" "0" "String"
         Set-Reg $key "*InterruptModeration" "0" "String"
     }
+    }
 
     # =========================================================================
     # 2. SYSTEM & CPU OPTIMIZATION
@@ -140,13 +150,15 @@ function Invoke-GamingOptimization {
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NoLazyMode" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "AlwaysOn" 1
     
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "GPU Priority" 8
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Priority" 6
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Scheduling Category" "High" "String"
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "SFIO Priority" "High" "String"
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Latency Sensitive" "True" "String"
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Background Only" "False" "String"
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Clock Rate" 10000
+    if ($EnableGpuPriority) {
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "GPU Priority" 8
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Priority" 6
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Scheduling Category" "High" "String"
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "SFIO Priority" "High" "String"
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Latency Sensitive" "True" "String"
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Background Only" "False" "String"
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Clock Rate" 10000
+    }
 
     # CSRSS Realtime
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\csrss.exe\PerfOptions" "CpuPriorityClass" 4
@@ -170,7 +182,9 @@ function Invoke-GamingOptimization {
     Log "Applying GPU Optimizations..."
 
     # HAGS (Hardware-Accelerated GPU Scheduling)
-    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 2
+    if ($EnableHags) {
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 2
+    }
 
     # DirectX Contiguous Memory
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "DpiMapIommuContiguous" 1
@@ -181,9 +195,13 @@ function Invoke-GamingOptimization {
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_EFSEFeatureFlags" 0
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_DXGIHonorFSEWindowsCompatible" 0
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_HonorUserFSEBehaviorMode" 1
-    Set-Reg "HKCU:\SOFTWARE\Microsoft\GameBar" "AllowAutoGameMode" 1
-    Set-Reg "HKCU:\SOFTWARE\Microsoft\GameBar" "AutoGameModeEnabled" 1
-    Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR" "AppCaptureEnabled" 0
+    if ($EnableGameMode) {
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\GameBar" "AllowAutoGameMode" 1
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\GameBar" "AutoGameModeEnabled" 1
+    }
+    if ($DisableGameBar) {
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR" "AppCaptureEnabled" 0
+    }
 
     # MPO (Multiplane Overlay) - Often causes flickering, disabling can help stability
     try { Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\Dwm" -Name "OverlayTestMode" -ErrorAction SilentlyContinue } catch {}
