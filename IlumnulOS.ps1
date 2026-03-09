@@ -29,6 +29,7 @@ if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
     # Create Directories
     New-Item -ItemType Directory -Path "$InstallPath\Modules" -Force | Out-Null
     New-Item -ItemType Directory -Path "$InstallPath\Assets" -Force | Out-Null
+    New-Item -ItemType Directory -Path "$InstallPath\Config" -Force | Out-Null
     
     # Helper to download
     function Download-File {
@@ -46,6 +47,7 @@ if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
     
     # Download Core Files
     Download-File "Assets/MainWindow.xaml" "$InstallPath\Assets\MainWindow.xaml"
+    Download-File "Config/settings.json" "$InstallPath\Config\settings.json"
     Download-File "Modules/Debloat.psm1" "$InstallPath\Modules\Debloat.psm1"
     Download-File "Modules/Gaming.psm1" "$InstallPath\Modules\Gaming.psm1"
     Download-File "Modules/Optimize.psm1" "$InstallPath\Modules\Optimize.psm1"
@@ -145,14 +147,23 @@ function Start-AsyncOperation {
     $hostModulePath = $env:PSModulePath
     
     # Add necessary modules and functions to the runspace
-    $modulePath = $global:ScriptPath # Pass the script path
-    if (-not $modulePath) { $modulePath = $PWD.Path }
+    $modulePath = $ScriptPath # Pass the script path (Local Scope first)
+    if (-not $modulePath) { $modulePath = $global:ScriptPath } # Try Global Scope
+    if (-not $modulePath) { $modulePath = $PWD.Path } # Fallback to PWD
     
     $rs.AddScript({
         param($Path, $SyncHash, $Task, $SuccessMsg, $HostModulePath)
 
         # Set Global Root for modules to use
         $global:IlumnulRoot = $Path
+        
+        # Debug Log for Troubleshooting Path Issues
+        $timestamp = Get-Date -Format "HH:mm:ss"
+        $SyncHash.Window.Dispatcher.Invoke([Action]{
+             if ($SyncHash.OutputBox) {
+                 $SyncHash.OutputBox.Text += "[$timestamp] Runspace Initialized. Root Path: '$Path'`n"
+             }
+        })
 
         # FIX: Restore PSModulePath and ensure System32 modules are visible
         if ($HostModulePath) {
