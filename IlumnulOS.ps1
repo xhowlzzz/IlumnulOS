@@ -187,12 +187,12 @@ function Start-AsyncOperation {
              $modulesToLoad = @("Appx", "Dism", "ScheduledTasks", "Microsoft.PowerShell.Archive")
              foreach ($mod in $modulesToLoad) {
                 try {
-                    Import-Module "$sysNativeModPath\$mod\$mod.psd1" -Force -ErrorAction Stop
+                    Import-Module "$sysNativeModPath\$mod\$mod.psd1" -ErrorAction Stop
                     Log "Loaded $mod from SysNative."
                 } catch {
                     Log "Failed to load $mod from SysNative: $_"
                     # Last ditch attempt: name only
-                    try { Import-Module $mod -Force -ErrorAction SilentlyContinue } catch {}
+                    try { Import-Module $mod -ErrorAction SilentlyContinue } catch {}
                 }
              }
         } else {
@@ -200,24 +200,24 @@ function Start-AsyncOperation {
                 $env:PSModulePath = "$sysModPath;$env:PSModulePath"
              }
              # Force import Appx from System32
-             Import-Module "Appx" -Force -ErrorAction SilentlyContinue
-             Import-Module "Dism" -Force -ErrorAction SilentlyContinue
-             Import-Module "ScheduledTasks" -Force -ErrorAction SilentlyContinue
-             Import-Module "Microsoft.PowerShell.Archive" -Force -ErrorAction SilentlyContinue
+             Import-Module "Appx" -ErrorAction SilentlyContinue
+             Import-Module "Dism" -ErrorAction SilentlyContinue
+             Import-Module "ScheduledTasks" -ErrorAction SilentlyContinue
+             Import-Module "Microsoft.PowerShell.Archive" -ErrorAction SilentlyContinue
         }
 
         # FINAL CHECK: If modules are still missing, try one more time blindly
         if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
             Log "WARNING: Get-AppxPackage missing. Attempting blind import..."
-            Import-Module Appx -Force -ErrorAction SilentlyContinue
+            Import-Module Appx -ErrorAction SilentlyContinue
         }
         if (-not (Get-Command Get-AppxProvisionedPackage -ErrorAction SilentlyContinue)) {
             Log "WARNING: Get-AppxProvisionedPackage missing. Attempting blind import..."
-            Import-Module Dism -Force -ErrorAction SilentlyContinue
+            Import-Module Dism -ErrorAction SilentlyContinue
         }
         if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
             Log "WARNING: Get-ScheduledTask missing. Attempting blind import..."
-            Import-Module ScheduledTasks -Force -ErrorAction SilentlyContinue
+            Import-Module ScheduledTasks -ErrorAction SilentlyContinue
         }
 
         # Define Log function inside runspace that calls back to UI
