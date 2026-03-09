@@ -12,6 +12,11 @@ function Remove-Bloatware {
         Import-Module Appx -Force -ErrorAction SilentlyContinue
     }
 
+    if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+        Log "Warning: Get-ScheduledTask not found. Attempting to load ScheduledTasks module..."
+        Import-Module ScheduledTasks -Force -ErrorAction SilentlyContinue
+    }
+
     # Helper to set registry key safely
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
