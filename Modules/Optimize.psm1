@@ -1,10 +1,17 @@
 # Optimize Module
 function Invoke-SystemOptimization {
-    param([Action[string]]$Logger)
+    param(
+        [Action[string]]$Logger,
+        [hashtable]$Options = @{}
+    )
     
     function Log($msg) { if ($Logger) { $Logger.Invoke($msg) } else { Write-Host $msg } }
 
     Log "Starting System Optimizations..."
+    $UsePowerPlan = if ($Options.ContainsKey("PowerPlan")) { [bool]$Options.PowerPlan } else { $true }
+    $DisableHibernation = if ($Options.ContainsKey("DisableHibernation")) { [bool]$Options.DisableHibernation } else { $true }
+    $DisableSearchIndexing = if ($Options.ContainsKey("DisableSearchIndexing")) { [bool]$Options.DisableSearchIndexing } else { $false }
+    $TuneVisualEffects = if ($Options.ContainsKey("VisualEffects")) { [bool]$Options.VisualEffects } else { $true }
 
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
@@ -26,10 +33,12 @@ function Invoke-SystemOptimization {
     }
 
     # Visual Effects - Performance
-    Log "Optimizing Visual Effects for Performance..."
-    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" "VisualFXSetting" 2
-    Set-Reg "HKCU:\Control Panel\Desktop" "UserPreferencesMask" ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00)) "Binary"
-    Set-Reg "HKCU:\Control Panel\Desktop\WindowMetrics" "MinAnimate" "0" "String"
+    if ($TuneVisualEffects) {
+        Log "Optimizing Visual Effects for Performance..."
+        Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" "VisualFXSetting" 2
+        Set-Reg "HKCU:\Control Panel\Desktop" "UserPreferencesMask" ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00)) "Binary"
+        Set-Reg "HKCU:\Control Panel\Desktop\WindowMetrics" "MinAnimate" "0" "String"
+    }
 
     # Virtual Memory (Ensure System Managed for Stability)
     Log "Configuring Virtual Memory..."
@@ -91,11 +100,13 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "LargeSystemCache" 1
 
     # Disable Fast Startup & Hibernation
-    Log "Disabling Hibernation..."
-    & powercfg /h off
-    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" "HiberbootEnabled" 0
-    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "HibernateEnabled" 0
-    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "SleepReliabilityDetailedDiagnostics" 0
+    if ($DisableHibernation) {
+        Log "Disabling Hibernation..."
+        & powercfg /h off
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" "HiberbootEnabled" 0
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "HibernateEnabled" 0
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "SleepReliabilityDetailedDiagnostics" 0
+    }
 
     # Disable Sleep Study
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" "SleepStudyDisabled" 1
@@ -366,8 +377,10 @@ function Invoke-SystemOptimization {
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers" "DisableAutoplay" 1
 
     # Button 18: PowerCfg (High Performance)
-    Log "Setting High Performance Power Plan..."
-    & powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+    if ($UsePowerPlan) {
+        Log "Setting High Performance Power Plan..."
+        & powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+    }
 
     # Button 19: Bluetooth Radio State (Off)
     Log "Disabling Bluetooth Radio..."
@@ -492,6 +505,16 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "DisableEdgeDesktopShortcutCreation" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "DisableNotificationCenter" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "HidePeopleBar" 1
+    if ($DisableSearchIndexing) {
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowIndexingEncryptedStoresOrItems" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "DisableBackoff" 1
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "PreventIndexingOutlook" 1
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\WSearch" "Start" 4
+        try {
+            Stop-Service -Name "WSearch" -Force -ErrorAction SilentlyContinue
+            Set-Service -Name "WSearch" -StartupType Disabled -ErrorAction SilentlyContinue
+        } catch {}
+    }
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "SetAutoRestartNotificationDisable" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization" "DODownloadMode" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization" "DOMaxUploadBandwidth" 0
