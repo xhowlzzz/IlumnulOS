@@ -57,16 +57,12 @@ if (-not $ScriptPath) {
                     $timestamp = Get-Date -Format "HH:mm:ss"
                     Write-Host "[$timestamp] Downloading $RemotePath (Attempt $attempt/$MaxRetries)..." -NoNewline
                     
-                    # Try WebClient first (fastest) with User-Agent
-                    $wc = New-Object System.Net.WebClient
-                    $wc.Headers.Add("User-Agent", "PowerShell")
-                    
                     # Add a random query parameter to bypass caching
                     $cb = Get-Random
                     $url = "$BaseUrl/$RemotePath?v=$cb"
                     
-                    $wc.DownloadFile($url, $LocalPath)
-                    $wc.Dispose()
+                    # Use Invoke-WebRequest directly (Simpler and often more robust in newer PS versions)
+                    Invoke-WebRequest -Uri $url -OutFile $LocalPath -ErrorAction Stop -UserAgent "PowerShell"
                     
                     # Basic integrity check (Size > 0)
                     if (Test-Path $LocalPath) {
