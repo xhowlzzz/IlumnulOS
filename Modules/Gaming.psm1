@@ -387,8 +387,7 @@ function Invoke-NvidiaProfile {
             $wc.DownloadFile($zipUrl, $zipPath)
         }
 
-        # Hash Verification Skipped as requested
-        # if ($expectedHash) { ... }
+        Log "Skipping Hash Verification (User Request)..."
 
         Log "Extracting..."
         Expand-Archive -Path $zipPath -DestinationPath $destDir -Force -ErrorAction Stop
