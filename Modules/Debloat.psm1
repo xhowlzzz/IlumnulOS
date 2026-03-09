@@ -6,6 +6,12 @@ function Remove-Bloatware {
 
     Log "Starting Privacy & Debloat tweaks..."
 
+    # Ensure Appx module is available
+    if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
+        Log "Warning: Get-AppxPackage not found. Attempting to load Appx module..."
+        Import-Module Appx -Force -ErrorAction SilentlyContinue
+    }
+
     # Helper to set registry key safely
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
