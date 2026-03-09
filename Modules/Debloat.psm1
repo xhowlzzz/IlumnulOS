@@ -9,7 +9,7 @@ function Remove-Bloatware {
     # Ensure Appx module is available
     if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
         Log "Warning: Get-AppxPackage not found. Attempting to load Appx module..."
-        Import-Module Appx -Force -ErrorAction SilentlyContinue
+        Import-Module Appx -ErrorAction SilentlyContinue
     }
 
     if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
