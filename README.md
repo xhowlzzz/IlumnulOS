@@ -9,9 +9,10 @@
 
 ---
 
-## 📋 Table of Contents
+## ðŸ“‹ Table of Contents
 
 - [Features](#-features)
+- [Screenshots](#-screenshots)
 - [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
 - [Usage](#-usage)
@@ -23,21 +24,27 @@
 
 ---
 
-## ✨ Features
+## âœ¨ Features
 
 IlumnulOS organizes its capabilities into intuitive modules accessible via a modern sidebar interface:
 
-*   **🖥️ Professional Dashboard**: View real-time hardware specifications (CPU, GPU, RAM, Disk) and system uptime in a clean, card-based layout.
-*   **🚀 Debloat**: Remove pre-installed bloatware, Windows Store apps, OneDrive, and Cortana to free up resources.
-*   **🎮 Gaming Mode**: Optimize system latency, enable Game Mode, adjust GPU priorities, and disable background services for maximum FPS.
-*   **🔒 Privacy Shield**: Disable telemetry, data collection, location tracking, and advertising IDs to reclaim your privacy.
-*   **🤖 AI Control Center**: **Exclusive Feature**. Completely disable and remove Windows Intelligence, Copilot, Recall (Snapshots), and Office AI integrations.
-*   **⚡ System Tuning**: Apply power plan optimizations, visual effect tweaks, and file system improvements.
-*   **💻 Built-in Terminal**: View real-time logs of all operations directly within the app interface.
+*   **ðŸ–¥ï¸ Professional Dashboard**: View real-time hardware specifications (CPU, GPU, RAM, Disk) and system uptime in a clean, card-based layout.
+*   **ðŸš€ Debloat**: Remove pre-installed bloatware, Windows Store apps, OneDrive, and Cortana to free up resources.
+*   **ðŸŽ® Gaming Mode**: Optimize system latency, enable Game Mode, adjust GPU priorities, and disable background services for maximum FPS.
+*   **ðŸ”’ Privacy Shield**: Disable telemetry, data collection, location tracking, and advertising IDs to reclaim your privacy.
+*   **ðŸ¤– AI Control Center**: **Exclusive Feature**. Completely disable and remove Windows Intelligence, Copilot, Recall (Snapshots), and Office AI integrations.
+*   **âš¡ System Tuning**: Apply power plan optimizations, visual effect tweaks, and file system improvements.
+*   **ðŸ’» Built-in Terminal**: View real-time logs of all operations directly within the app interface.
 
 ---
 
-## ⚙️ Prerequisites
+## ðŸ“¸ Screenshots
+
+*(Add screenshots of the Dashboard, AI Control, and Terminal tabs here)*
+
+---
+
+## âš™ï¸ Prerequisites
 
 Before running IlumnulOS, ensure your system meets the following requirements:
 
@@ -47,7 +54,7 @@ Before running IlumnulOS, ensure your system meets the following requirements:
 
 ---
 
-## 📥 Installation
+## ðŸ“¥ Installation
 
 ### Option 1: Automatic (Recommended)
 Copy and paste the following command into **PowerShell (Administrator)** to download and run IlumnulOS automatically:
@@ -74,7 +81,7 @@ irm https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main/IlumnulOS.ps1 | ie
 
 ---
 
-## 🚀 Usage
+## ðŸš€ Usage
 
 1.  Navigate to the `IlumnulOS` directory.
 2.  Right-click on `IlumnulOS.ps1` and select **Run with PowerShell**.
@@ -87,7 +94,7 @@ irm https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main/IlumnulOS.ps1 | ie
 
 ---
 
-## 📦 Modules Overview
+## ðŸ“¦ Modules Overview
 
 ### 1. RemoveAI (`Modules\RemoveAI.psm1`)
 A cutting-edge module to strip AI components:
@@ -113,7 +120,7 @@ A cutting-edge module to strip AI components:
 
 ---
 
-## ❓ Troubleshooting
+## â“ Troubleshooting
 
 **Q: The script closes immediately after opening.**
 A: Ensure you have set the execution policy correctly. Try running it from an Administrator PowerShell window using: `.\IlumnulOS.ps1` to see any error messages.
@@ -126,7 +133,7 @@ A: IlumnulOS creates registry modifications. It is **strongly recommended** to c
 
 ---
 
-## ⚠️ Disclaimer
+## âš ï¸ Disclaimer
 
 **Use at your own risk.**
 This tool modifies critical system settings, registry keys, and services. While every effort has been made to ensure stability, the developers are not responsible for any system instability, data loss, or boot issues.
@@ -135,7 +142,7 @@ This tool modifies critical system settings, registry keys, and services. While 
 
 ---
 
-## 🤝 Contributing
+## ðŸ¤ Contributing
 
 Contributions are welcome! Please follow these steps:
 1.  Fork the repository.
@@ -146,6 +153,6 @@ Contributions are welcome! Please follow these steps:
 
 ---
 
-## 📄 License
+## ðŸ“„ License
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
