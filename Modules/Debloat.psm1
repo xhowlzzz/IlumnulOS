@@ -1033,6 +1033,35 @@ function Remove-Bloatware {
     Remove-Item -Path "$env:SystemRoot\Logs\CBS\CBS.log" -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "$env:SystemRoot\Logs\DISM\DISM.log" -Force -ErrorAction SilentlyContinue
 
+    Log "Applying Brave browser debloat settings..."
+    $braveProfiles = @(
+        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Preferences",
+        "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Default\Secure Preferences"
+    )
+    foreach ($bravePrefPath in $braveProfiles) {
+        try {
+            if (Test-Path $bravePrefPath) {
+                $raw = Get-Content -Path $bravePrefPath -Raw -ErrorAction SilentlyContinue
+                if ($raw) {
+                    $json = $raw | ConvertFrom-Json -ErrorAction Stop
+                    if (-not $json.brave) { $json | Add-Member -NotePropertyName "brave" -NotePropertyValue (@{}) }
+                    if (-not $json.brave.ai_chat) { $json.brave | Add-Member -NotePropertyName "ai_chat" -NotePropertyValue (@{}) -Force }
+                    if (-not $json.brave.wallet) { $json.brave | Add-Member -NotePropertyName "wallet" -NotePropertyValue (@{}) -Force }
+                    if (-not $json.brave.news) { $json.brave | Add-Member -NotePropertyName "news" -NotePropertyValue (@{}) -Force }
+                    if (-not $json.brave.today) { $json.brave | Add-Member -NotePropertyName "today" -NotePropertyValue (@{}) -Force }
+                    $json.brave.ai_chat.enabled = $false
+                    $json.brave.wallet.enabled = $false
+                    $json.brave.news.opted_in = $false
+                    $json.brave.today.opted_in = $false
+                    ($json | ConvertTo-Json -Depth 100) | Set-Content -Path $bravePrefPath -Encoding UTF8 -Force
+                    Log "Updated Brave preferences at $bravePrefPath"
+                }
+            }
+        } catch {
+            Log "Brave debloat skipped for ${bravePrefPath}: $_"
+        }
+    }
+
     Log "Debloat tweaks applied."
 }
 Export-ModuleMember -Function Remove-Bloatware
