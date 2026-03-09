@@ -42,7 +42,7 @@ if (-not $ScriptPath) {
             param($RemotePath, $LocalPath)
             $MaxRetries = 3
             $RetryDelaySeconds = 2
-            $BaseUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
+            $BaseUrl = $RepoUrl
             
             # Ensure directory exists before downloading
             $parentDir = Split-Path -Parent $LocalPath
@@ -59,13 +59,17 @@ if (-not $ScriptPath) {
                     
                     # Try WebClient first (fastest) with User-Agent
                     $wc = New-Object System.Net.WebClient
-                    $wc.Headers.Add("User-Agent", "PowerShell IlumnulOS Bootstrapper")
-                    
-                    # Add a random query parameter to bypass caching
-                    $cb = Get-Random
-                    $url = "$BaseUrl/$RemotePath?v=$cb"
-                    
-                    $wc.DownloadFile($url, $LocalPath)
+                    try {
+                        $wc.Headers.Add("User-Agent", "PowerShell IlumnulOS Bootstrapper")
+                        
+                        # Add a random query parameter to bypass caching
+                        $cb = Get-Random
+                        $url = "$BaseUrl/$RemotePath?v=$cb"
+                        
+                        $wc.DownloadFile($url, $LocalPath)
+                    } finally {
+                        $wc.Dispose()
+                    }
                     
                     # Basic integrity check (Size > 0)
                     # Note: SHA-256 validation skipped as we don't have a manifest of hashes.
