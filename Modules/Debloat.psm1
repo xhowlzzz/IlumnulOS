@@ -1,10 +1,20 @@
 # Debloat Module
 function Remove-Bloatware {
-    param([Action[string]]$Logger)
+    param(
+        [Action[string]]$Logger,
+        [hashtable]$Options = @{}
+    )
     
     function Log($msg) { if ($Logger) { $Logger.Invoke($msg) } else { Write-Host $msg } }
 
     Log "Starting Privacy & Debloat tweaks..."
+    $EnableRemoveAppx = if ($Options.ContainsKey("RemoveAppx")) { [bool]$Options.RemoveAppx } else { $true }
+    $EnableRemoveOneDrive = if ($Options.ContainsKey("RemoveOneDrive")) { [bool]$Options.RemoveOneDrive } else { $true }
+    $EnableRemoveCortana = if ($Options.ContainsKey("RemoveCortana")) { [bool]$Options.RemoveCortana } else { $true }
+    $EnableDisableServices = if ($Options.ContainsKey("DisableServices")) { [bool]$Options.DisableServices } else { $true }
+    $EnableDisableTelemetry = if ($Options.ContainsKey("DisableTelemetry")) { [bool]$Options.DisableTelemetry } else { $true }
+    $EnableDisableAdvertising = if ($Options.ContainsKey("DisableAdvertising")) { [bool]$Options.DisableAdvertising } else { $true }
+    $EnableDisableLocation = if ($Options.ContainsKey("DisableLocation")) { [bool]$Options.DisableLocation } else { $true }
 
     # Ensure Appx module is available
     if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
@@ -755,6 +765,7 @@ function Remove-Bloatware {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\PCHealth\ErrorReporting" "DoReport" 0
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting" "Disabled" 1
 
+    if ($EnableDisableTelemetry) {
     # Disable Telemetry (Task Scheduler)
     Log "Disabling Telemetry Tasks..."
     $tasks = @(
@@ -837,8 +848,10 @@ function Remove-Bloatware {
         Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
         Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
     }
+    }
 
     # Removing Unnecessary Powershell Packages
+    if ($EnableRemoveAppx) {
     Log "Removing Unnecessary Appx Packages..."
     $bloatPkgs = @(
         "*3DBuilder*", "*bing*", "*bingfinance*", "*bingsports*", "*BingWeather*", "*CommsPhone*",
@@ -857,8 +870,10 @@ function Remove-Bloatware {
             Log "Failed to remove $pkg"
         }
     }
+    }
 
     # Disable Unnecessary Services (Extensive List)
+    if ($EnableDisableServices) {
     Log "Disabling Unnecessary Services..."
     $unnecessaryServices = @(
         "TapiSrv", "FontCache3.0.0.0", "WpcMonSvc", "SEMgrSvc", "PNRPsvc", "LanmanWorkstation",
@@ -884,6 +899,7 @@ function Remove-Bloatware {
         } catch {
             Log "Failed to disable service: $svc"
         }
+    }
     }
     
     # Edge Removal (Aggressive - Use Caution)
@@ -912,8 +928,10 @@ function Remove-Bloatware {
     Log "Applying Confidentiality & Privacy Tweaks..."
 
     # Button 1: Advertising
-    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" 0
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Bluetooth" "AllowAdvertising" 0
+    if ($EnableDisableAdvertising) {
+        Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" 0
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Bluetooth" "AllowAdvertising" 0
+    }
 
     # Button 2: Setting Sync (Completed above, but ensuring all subkeys)
     $syncKeys = @("Accessibility", "BrowserSettings", "Credentials", "Language", "Personalization", "Windows")
@@ -944,9 +962,11 @@ function Remove-Bloatware {
     try { Remove-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient" -Recurse -Force -ErrorAction SilentlyContinue } catch {}
 
     # Button 10: Location & Sensors
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocation" 1
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocationScripting" 1
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableWindowsLocationProvider" 1
+    if ($EnableDisableLocation) {
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocation" 1
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocationScripting" 1
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableWindowsLocationProvider" 1
+    }
 
     # Button 11: Feedback (SIUF)
     Set-Reg "HKCU:\Software\Microsoft\Siuf\Rules" "NumberOfSIUFInPeriod" 0
@@ -981,17 +1001,20 @@ function Remove-Bloatware {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftEdge\TabPreloader" "AllowTabPreloading" 0
 
     # Disable Cortana (Registry & Package)
-    Log "Removing Cortana..."
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCortana" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCloudSearch" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCortanaAboveLock" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowSearchToUseLocation" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "ConnectedSearchUseWeb" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "ConnectedSearchUseWebOverMeteredConnections" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "DisableWebSearch" 0
-    Get-AppxPackage -AllUsers *Microsoft.549981C3F5F10* | Remove-AppxPackage -ErrorAction SilentlyContinue
+    if ($EnableRemoveCortana) {
+        Log "Removing Cortana..."
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCortana" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCloudSearch" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCortanaAboveLock" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowSearchToUseLocation" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "ConnectedSearchUseWeb" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "ConnectedSearchUseWebOverMeteredConnections" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "DisableWebSearch" 0
+        Get-AppxPackage -AllUsers *Microsoft.549981C3F5F10* | Remove-AppxPackage -ErrorAction SilentlyContinue
+    }
 
     # Disable OneDrive
+    if ($EnableRemoveOneDrive) {
     Log "Removing OneDrive..."
     try {
         $onedriveSetup = "$env:SYSTEMROOT\SYSWOW64\ONEDRIVESETUP.EXE"
@@ -1009,6 +1032,7 @@ function Remove-Bloatware {
         Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive" "DisableLibrariesDefaultSaveToOneDrive" 0
     } catch {
         Log "Error removing OneDrive: $_"
+    }
     }
 
     # System Cleanup
