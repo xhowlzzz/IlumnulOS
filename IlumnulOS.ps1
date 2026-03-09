@@ -181,6 +181,13 @@ function Start-AsyncOperation {
         $window.FindName("navTerminal").IsChecked = $true
     }
 
+    if ($script:OperationInProgress) {
+        if (Get-Command Log-Message -ErrorAction SilentlyContinue) {
+            Log-Message "Another operation is already running."
+        }
+        return
+    }
+
     # Create a synchronized hashtable for thread-safe logging
     $syncHash = [Hashtable]::Synchronized(@{})
     $syncHash.Window = $window
@@ -232,16 +239,39 @@ function Start-AsyncOperation {
     $rs.AddScript({
         param($Path, $SyncHash, $Task, $SuccessMsg, $HostModulePath, $TaskOptions)
 
+        function Log($msg) {
+            try {
+                if ($SyncHash.Window -and -not $SyncHash.Window.Dispatcher.HasShutdownStarted) {
+                    $timestamp = Get-Date -Format "HH:mm:ss"
+                    $null = $SyncHash.Window.Dispatcher.BeginInvoke([Action]{
+                        if ($SyncHash.OutputBox) {
+                            $SyncHash.OutputBox.Text += "[$timestamp] $msg`n"
+                            if ($SyncHash.OutputBox.Parent -is [System.Windows.Controls.ScrollViewer]) {
+                                $SyncHash.OutputBox.Parent.ScrollToBottom()
+                            }
+                        }
+                        if ($SyncHash.StatusBox) { $SyncHash.StatusBox.Text = $msg }
+                    })
+                }
+            } catch {
+                Write-Host $msg
+            }
+        }
+
         # Set Global Root for modules to use
         $global:IlumnulRoot = $Path
         
         # Debug Log for Troubleshooting Path Issues
         $timestamp = Get-Date -Format "HH:mm:ss"
-        $SyncHash.Window.Dispatcher.Invoke([Action]{
-             if ($SyncHash.OutputBox) {
-                 $SyncHash.OutputBox.Text += "[$timestamp] Runspace Initialized. Root Path: '$Path'`n"
-             }
-        })
+        try {
+            if ($SyncHash.Window -and -not $SyncHash.Window.Dispatcher.HasShutdownStarted) {
+                $null = $SyncHash.Window.Dispatcher.BeginInvoke([Action]{
+                     if ($SyncHash.OutputBox) {
+                         $SyncHash.OutputBox.Text += "[$timestamp] Runspace Initialized. Root Path: '$Path'`n"
+                     }
+                })
+            }
+        } catch {}
 
         # FIX: Restore PSModulePath and ensure System32 modules are visible
         if ($HostModulePath) {
@@ -298,20 +328,6 @@ function Start-AsyncOperation {
             Import-Module ScheduledTasks -ErrorAction SilentlyContinue
         }
 
-        # Define Log function inside runspace that calls back to UI
-        function Log($msg) {
-            $timestamp = Get-Date -Format "HH:mm:ss"
-            $SyncHash.Window.Dispatcher.Invoke([Action]{
-                if ($SyncHash.OutputBox) {
-                    $SyncHash.OutputBox.Text += "[$timestamp] $msg`n"
-                    if ($SyncHash.OutputBox.Parent -is [System.Windows.Controls.ScrollViewer]) {
-                        $SyncHash.OutputBox.Parent.ScrollToBottom()
-                    }
-                }
-                if ($SyncHash.StatusBox) { $SyncHash.StatusBox.Text = $msg }
-            })
-        }
-        
         # Create a proxy scriptblock for the module functions to use
         $LoggerProxy = { param($m) Log $m }
         
@@ -337,8 +353,50 @@ function Start-AsyncOperation {
         }
     }).AddArgument($modulePath).AddArgument($syncHash).AddArgument($ScriptBlock).AddArgument($SuccessMessage).AddArgument($hostModulePath).AddArgument($OperationOptions)
 
-    # Run async
-    $rs.BeginInvoke()
+    try {
+        $asyncHandle = $rs.BeginInvoke()
+    } catch {
+        if (Get-Command Log-Message -ErrorAction SilentlyContinue) {
+            Log-Message "Failed to start operation: $_"
+        }
+        try { $rs.Dispose() } catch {}
+        return
+    }
+
+    if (-not $script:ActiveOperations) {
+        $script:ActiveOperations = [System.Collections.ArrayList]::new()
+    }
+
+    $script:OperationInProgress = $true
+    if (Get-Command Set-ActionButtonsState -ErrorAction SilentlyContinue) {
+        Set-ActionButtonsState -Enabled $false
+    }
+
+    $opTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $opTimer.Interval = [TimeSpan]::FromMilliseconds(300)
+    $opRef = @{ Runspace = $rs; Handle = $asyncHandle; Timer = $opTimer }
+    [void]$script:ActiveOperations.Add($opRef)
+
+    $opTimer.Add_Tick({
+        $state = $rs.InvocationStateInfo.State
+        if ($state -in @('Completed','Failed','Stopped')) {
+            $opTimer.Stop()
+            try { $rs.EndInvoke($asyncHandle) | Out-Null } catch {}
+            try { $rs.Dispose() } catch {}
+            if ($script:ActiveOperations) {
+                for ($i = $script:ActiveOperations.Count - 1; $i -ge 0; $i--) {
+                    if ($script:ActiveOperations[$i].Runspace -eq $rs) {
+                        $script:ActiveOperations.RemoveAt($i)
+                    }
+                }
+            }
+            $script:OperationInProgress = $false
+            if (Get-Command Set-ActionButtonsState -ErrorAction SilentlyContinue) {
+                Set-ActionButtonsState -Enabled $true
+            }
+        }
+    })
+    $opTimer.Start()
 }
 
 try {
@@ -587,6 +645,21 @@ try {
     $chkDisableHibernation = $window.FindName("chkDisableHibernation")
     $chkDisableSearchIndexing = $window.FindName("chkDisableSearchIndexing")
     $chkVisualEffects = $window.FindName("chkVisualEffects")
+    $btnCleanTemp = $window.FindName("btnCleanTemp")
+    $btnRestartExplorer = $window.FindName("btnRestartExplorer")
+    $btnFlushDNS = $window.FindName("btnFlushDNS")
+
+    $script:OperationInProgress = $false
+    $script:TweakButtons = @($btnOneClick, $btnRunDebloat, $btnRunGaming, $btnNvidiaProfile, $btnRunPrivacy, $btnRunAI, $btnRunOptimize, $btnCleanTemp, $btnRestartExplorer, $btnFlushDNS)
+
+    function Set-ActionButtonsState {
+        param([bool]$Enabled)
+        foreach ($btn in $script:TweakButtons) {
+            if ($btn) {
+                $btn.IsEnabled = $Enabled
+            }
+        }
+    }
 
     $logAction = [Action[string]] { param($msg) Log-Message $msg }
 
@@ -689,22 +762,31 @@ try {
     }
 
     # Quick Actions
-    $window.FindName("btnCleanTemp").Add_Click({
-        Log-Message "Cleaning Temp Files..."
-        Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
-        Log-Message "Temp Files Cleaned."
+    $btnCleanTemp.Add_Click({
+        Start-AsyncOperation -ScriptBlock {
+            param($Logger, $Options)
+            if ($Logger) { $Logger.Invoke("Cleaning Temp Files...") }
+            Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+            if ($Logger) { $Logger.Invoke("Temp Files Cleaned.") }
+        } -SuccessMessage "Temp cleanup finished."
     })
     
-    $window.FindName("btnRestartExplorer").Add_Click({
-        Log-Message "Restarting Explorer..."
-        Stop-Process -Name "explorer" -Force
-        Log-Message "Explorer Restarted."
+    $btnRestartExplorer.Add_Click({
+        Start-AsyncOperation -ScriptBlock {
+            param($Logger, $Options)
+            if ($Logger) { $Logger.Invoke("Restarting Explorer...") }
+            Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
+            if ($Logger) { $Logger.Invoke("Explorer Restarted.") }
+        } -SuccessMessage "Explorer restart finished."
     })
 
-    $window.FindName("btnFlushDNS").Add_Click({
-        Log-Message "Flushing DNS..."
-        ipconfig /flushdns | Out-Null
-        Log-Message "DNS Flushed."
+    $btnFlushDNS.Add_Click({
+        Start-AsyncOperation -ScriptBlock {
+            param($Logger, $Options)
+            if ($Logger) { $Logger.Invoke("Flushing DNS...") }
+            ipconfig /flushdns | Out-Null
+            if ($Logger) { $Logger.Invoke("DNS Flushed.") }
+        } -SuccessMessage "DNS flush finished."
     })
 
 } catch {
@@ -719,6 +801,18 @@ if ($window) {
     } finally {
         # Cleanup background resources after window closes to prevent UI freeze
         if ($syncHash) { $syncHash.Run = $false }
+
+        if ($script:ActiveOperations) {
+            foreach ($op in @($script:ActiveOperations)) {
+                try { if ($op.Timer) { $op.Timer.Stop() } } catch {}
+                try {
+                    if ($op.Runspace -and $op.Runspace.InvocationStateInfo.State -eq 'Running') {
+                        $op.Runspace.Stop()
+                    }
+                } catch {}
+                try { if ($op.Runspace) { $op.Runspace.Dispose() } } catch {}
+            }
+        }
         
         if ($runspace) {
             try {
