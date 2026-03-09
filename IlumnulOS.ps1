@@ -23,7 +23,7 @@ if (-not $ScriptPath) {
     if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
         Write-Host "Remote Execution Detected. Initializing IlumnulOS Bootstrapper..." -ForegroundColor Cyan
         
-        $InstallPath = "$env:TEMP\IlumnulOS_v2"
+        $InstallPath = "$env:USERPROFILE\Documents\IlumnulOS_v2"
         $RepoUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
         
         # Clean cleanup to ensure fresh files
@@ -77,7 +77,8 @@ if (Test-Path "$ScriptPath\Modules\RemoveAI.psm1") { Import-Module "$ScriptPath\
 $XamlPath = Join-Path -Path $ScriptPath -ChildPath "Assets\MainWindow.xaml"
 if (!(Test-Path $XamlPath)) {
     Write-Error "CRITICAL ERROR: MainWindow.xaml not found at $XamlPath"
-    exit
+    Read-Host "Press Enter to exit..."
+    return
 }
 
 try {
@@ -91,7 +92,8 @@ try {
     $sr.Close()
 } catch {
     Write-Error "CRITICAL ERROR: Failed to load XAML. $_"
-    exit
+    Read-Host "Press Enter to exit..."
+    return
 }
 
 # -----------------------------------------------------------------------------
