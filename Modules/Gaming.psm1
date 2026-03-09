@@ -390,7 +390,15 @@ function Invoke-NvidiaProfile {
         Log "Skipping Hash Verification (User Request)..."
 
         Log "Extracting..."
-        Expand-Archive -Path $zipPath -DestinationPath $destDir -Force -ErrorAction Stop
+        try {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            # Clean destination to simulate -Force
+            if (Test-Path "$destDir\nvidiaProfileInspector.exe") { Remove-Item "$destDir\*" -Recurse -Force -ErrorAction SilentlyContinue }
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $destDir)
+        } catch {
+             Log "NET Extract failed, trying Expand-Archive..."
+             Expand-Archive -Path $zipPath -DestinationPath $destDir -Force -ErrorAction Stop
+        }
 
         Log "Downloading IlumnulOS Profile..."
         try {
