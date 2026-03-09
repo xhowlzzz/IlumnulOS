@@ -2,7 +2,10 @@
 # Systematically disables and removes Windows 11 AI components (Copilot, Recall, etc.)
 
 function Remove-WindowsAI {
-    param([Action[string]]$Logger)
+    param(
+        [Action[string]]$Logger,
+        [hashtable]$Options = @{}
+    )
     
     function Log($msg) { 
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -34,6 +37,9 @@ function Remove-WindowsAI {
     }
 
     Log "Starting Comprehensive AI Removal..."
+    $DisableCopilot = if ($Options.ContainsKey("DisableCopilot")) { [bool]$Options.DisableCopilot } else { $true }
+    $DisableRecall = if ($Options.ContainsKey("DisableRecall")) { [bool]$Options.DisableRecall } else { $true }
+    $DisableOfficeAI = if ($Options.ContainsKey("DisableOfficeAI")) { [bool]$Options.DisableOfficeAI } else { $true }
 
     # =========================================================================
     # 1. REGISTRY OPERATIONS (Block AI Features)
@@ -42,17 +48,25 @@ function Remove-WindowsAI {
     
     # Windows AI Policy
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "DisableAIDataAnalysis" 1
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "AllowRecallEnablement" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "DisableClickToDo" 1
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" 1
+    if ($DisableRecall) {
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "AllowRecallEnablement" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "DisableClickToDo" 1
+    }
+    if ($DisableCopilot) {
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" 1
+    }
     
     # User Preferences
-    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0
-    Set-Reg "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" 1
+    if ($DisableCopilot) {
+        Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0
+        Set-Reg "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" 1
+    }
     
     # Edge Copilot
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "HubsSidebarEnabled" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "CopilotEnabled" 0
+    if ($DisableOfficeAI) {
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "HubsSidebarEnabled" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "CopilotEnabled" 0
+    }
     
     # Paint & Notepad AI
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint" "DisableGenerativeFill" 1
@@ -86,7 +100,9 @@ function Remove-WindowsAI {
     # =========================================================================
     Log "--- Phase 2: Service Management ---"
     
-    $aiServices = @("WindowsCopilot", "AIFabricService", "RecallService", "InputInsights", "NaturalAuthentication")
+    $aiServices = @("AIFabricService", "InputInsights", "NaturalAuthentication")
+    if ($DisableCopilot) { $aiServices += "WindowsCopilot" }
+    if ($DisableRecall) { $aiServices += "RecallService" }
     foreach ($svc in $aiServices) {
         if (Get-Service $svc -ErrorAction SilentlyContinue) {
             try {
@@ -121,14 +137,18 @@ function Remove-WindowsAI {
     }
 
     $aiPackages = @(
-        "*Microsoft.Windows.Ai.Copilot.Provider*",
-        "*Microsoft.Windows.Recall*",
-        "*Microsoft.Copilot*",
-        "*Microsoft.BingChat*",
-        "*Microsoft.Windows.Search*", # Careful with this one, but user asked for AI components in search
-        "*Microsoft.Windows.PeopleExperienceHost*", # Often linked to people/AI features
-        "*Microsoft.Windows.ContentDeliveryManager*" # Delivers suggestions/ads/AI features
+        "*Microsoft.Windows.Search*",
+        "*Microsoft.Windows.PeopleExperienceHost*",
+        "*Microsoft.Windows.ContentDeliveryManager*"
     )
+    if ($DisableCopilot) {
+        $aiPackages += "*Microsoft.Windows.Ai.Copilot.Provider*"
+        $aiPackages += "*Microsoft.Copilot*"
+        $aiPackages += "*Microsoft.BingChat*"
+    }
+    if ($DisableRecall) {
+        $aiPackages += "*Microsoft.Windows.Recall*"
+    }
     
     foreach ($pkg in $aiPackages) {
         try {
@@ -152,13 +172,15 @@ function Remove-WindowsAI {
     }
 
     # Optional Features (Recall)
-    try {
-        if (Get-WindowsOptionalFeature -Online -FeatureName "Recall" -ErrorAction SilentlyContinue) {
-            Disable-WindowsOptionalFeature -Online -FeatureName "Recall" -NoRestart -ErrorAction SilentlyContinue
-            Log "Feature: Disabled Recall Optional Feature"
+    if ($DisableRecall) {
+        try {
+            if (Get-WindowsOptionalFeature -Online -FeatureName "Recall" -ErrorAction SilentlyContinue) {
+                Disable-WindowsOptionalFeature -Online -FeatureName "Recall" -NoRestart -ErrorAction SilentlyContinue
+                Log "Feature: Disabled Recall Optional Feature"
+            }
+        } catch {
+            Log "Feature: Failed to disable Recall - $_"
         }
-    } catch {
-        Log "Feature: Failed to disable Recall - $_"
     }
 
     # =========================================================================
@@ -172,11 +194,13 @@ function Remove-WindowsAI {
         "HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\common"
     )
 
-    foreach ($basePath in $officePaths) {
-        Set-Reg "$basePath\research" "disableoneclickresearch" 1
-        Set-Reg "$basePath\ai" "enableai" 0
-        Set-Reg "$basePath\copilot" "enablecopilot" 0
-        Set-Reg "$basePath\internet" "useonlinecontent" 0
+    if ($DisableOfficeAI) {
+        foreach ($basePath in $officePaths) {
+            Set-Reg "$basePath\research" "disableoneclickresearch" 1
+            Set-Reg "$basePath\ai" "enableai" 0
+            Set-Reg "$basePath\copilot" "enablecopilot" 0
+            Set-Reg "$basePath\internet" "useonlinecontent" 0
+        }
     }
     
     # Block Copilot Ribbon
@@ -188,13 +212,16 @@ function Remove-WindowsAI {
     # =========================================================================
     Log "--- Phase 5: File System Cleanup ---"
     
-    $paths = @(
-        "$env:LOCALAPPDATA\Microsoft\Windows\Copilot",
-        "$env:LOCALAPPDATA\Microsoft\Recall",
-        "$env:PROGRAMDATA\Microsoft\Windows\Recall",
-        "$env:LOCALAPPDATA\Packages\Microsoft.Windows.Ai.Copilot.Provider*",
-        "$env:LOCALAPPDATA\Packages\Microsoft.Copilot*"
-    )
+    $paths = @()
+    if ($DisableCopilot) {
+        $paths += "$env:LOCALAPPDATA\Microsoft\Windows\Copilot"
+        $paths += "$env:LOCALAPPDATA\Packages\Microsoft.Windows.Ai.Copilot.Provider*"
+        $paths += "$env:LOCALAPPDATA\Packages\Microsoft.Copilot*"
+    }
+    if ($DisableRecall) {
+        $paths += "$env:LOCALAPPDATA\Microsoft\Recall"
+        $paths += "$env:PROGRAMDATA\Microsoft\Windows\Recall"
+    }
     
     foreach ($path in $paths) {
         if (Test-Path $path) {
@@ -235,10 +262,9 @@ function Remove-WindowsAI {
     Log "--- Phase 6: Task Scheduler ---"
     
     # Recall & AI Tasks
-    $tasks = Get-ScheduledTask | Where-Object { 
-        $_.TaskName -like "*Recall*" -or 
-        $_.TaskPath -like "*Recall*" -or 
-        $_.TaskName -like "*Copilot*" -or
+    $tasks = Get-ScheduledTask | Where-Object {
+        (($DisableRecall) -and ($_.TaskName -like "*Recall*" -or $_.TaskPath -like "*Recall*")) -or
+        (($DisableCopilot) -and ($_.TaskName -like "*Copilot*")) -or
         $_.TaskPath -like "*WindowsAI*"
     }
     foreach ($task in $tasks) {
