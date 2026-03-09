@@ -177,24 +177,39 @@ function Start-AsyncOperation {
         # Detect if we need to force SysNative import (32-bit process on 64-bit OS)
         if (Test-Path $sysNativeModPath) {
              # We are in 32-bit mode, but need 64-bit modules for Appx
+             Log "32-bit Process Detected. Attempting to load 64-bit modules from SysNative..."
+             
              if ($env:PSModulePath -notlike "*$sysNativeModPath*") {
                 $env:PSModulePath = "$sysNativeModPath;$env:PSModulePath"
              }
              
-             # Force import Appx from SysNative
-             Import-Module "$sysNativeModPath\Appx\Appx.psd1" -Force -ErrorAction SilentlyContinue
-             Import-Module "$sysNativeModPath\Dism\Dism.psd1" -Force -ErrorAction SilentlyContinue
-             Import-Module "$sysNativeModPath\ScheduledTasks\ScheduledTasks.psd1" -Force -ErrorAction SilentlyContinue
-             Import-Module "$sysNativeModPath\Microsoft.PowerShell.Archive\Microsoft.PowerShell.Archive.psd1" -Force -ErrorAction SilentlyContinue
+             # Force import Appx from SysNative with verbose logging on failure
+             $modulesToLoad = @("Appx", "Dism", "ScheduledTasks", "Microsoft.PowerShell.Archive")
+             foreach ($mod in $modulesToLoad) {
+                try {
+                    Import-Module "$sysNativeModPath\$mod\$mod.psd1" -Force -ErrorAction Stop
+                    Log "Loaded $mod from SysNative."
+                } catch {
+                    Log "Failed to load $mod from SysNative: $_"
+                    # Last ditch attempt: name only
+                    try { Import-Module $mod -Force -ErrorAction SilentlyContinue } catch {}
+                }
+             }
         } else {
              if ($env:PSModulePath -notlike "*$sysModPath*") {
                 $env:PSModulePath = "$sysModPath;$env:PSModulePath"
              }
              # Force import Appx from System32
-             Import-Module "$sysModPath\Appx\Appx.psd1" -Force -ErrorAction SilentlyContinue
-             Import-Module "$sysModPath\Dism\Dism.psd1" -Force -ErrorAction SilentlyContinue
-             Import-Module "$sysModPath\ScheduledTasks\ScheduledTasks.psd1" -Force -ErrorAction SilentlyContinue
-             Import-Module "$sysModPath\Microsoft.PowerShell.Archive\Microsoft.PowerShell.Archive.psd1" -Force -ErrorAction SilentlyContinue
+             Import-Module "Appx" -Force -ErrorAction SilentlyContinue
+             Import-Module "Dism" -Force -ErrorAction SilentlyContinue
+             Import-Module "ScheduledTasks" -Force -ErrorAction SilentlyContinue
+             Import-Module "Microsoft.PowerShell.Archive" -Force -ErrorAction SilentlyContinue
+        }
+
+        # FINAL CHECK: If Get-AppxPackage is still missing, try one more time blindly
+        if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
+            Log "WARNING: Get-AppxPackage missing. Attempting blind import..."
+            Import-Module Appx -Force -ErrorAction SilentlyContinue
         }
 
         # Define Log function inside runspace that calls back to UI
