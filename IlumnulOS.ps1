@@ -172,8 +172,27 @@ function Start-AsyncOperation {
         
         # Explicitly add System32 PowerShell modules path if missing
         $sysModPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
-        if ($env:PSModulePath -notlike "*$sysModPath*") {
-            $env:PSModulePath = "$sysModPath;$env:PSModulePath"
+        $sysNativeModPath = "$env:SystemRoot\SysNative\WindowsPowerShell\v1.0\Modules"
+        
+        # Detect if we need to force SysNative import (32-bit process on 64-bit OS)
+        if (Test-Path $sysNativeModPath) {
+             # We are in 32-bit mode, but need 64-bit modules for Appx
+             if ($env:PSModulePath -notlike "*$sysNativeModPath*") {
+                $env:PSModulePath = "$sysNativeModPath;$env:PSModulePath"
+             }
+             
+             # Force import Appx from SysNative
+             Import-Module "$sysNativeModPath\Appx\Appx.psd1" -Force -ErrorAction SilentlyContinue
+             Import-Module "$sysNativeModPath\Dism\Dism.psd1" -Force -ErrorAction SilentlyContinue
+             Import-Module "$sysNativeModPath\ScheduledTasks\ScheduledTasks.psd1" -Force -ErrorAction SilentlyContinue
+        } else {
+             if ($env:PSModulePath -notlike "*$sysModPath*") {
+                $env:PSModulePath = "$sysModPath;$env:PSModulePath"
+             }
+             # Force import Appx from System32
+             Import-Module "$sysModPath\Appx\Appx.psd1" -Force -ErrorAction SilentlyContinue
+             Import-Module "$sysModPath\Dism\Dism.psd1" -Force -ErrorAction SilentlyContinue
+             Import-Module "$sysModPath\ScheduledTasks\ScheduledTasks.psd1" -Force -ErrorAction SilentlyContinue
         }
 
         # Define Log function inside runspace that calls back to UI
