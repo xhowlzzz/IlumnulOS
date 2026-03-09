@@ -37,40 +37,65 @@ if (-not $ScriptPath) {
         New-Item -ItemType Directory -Path "$InstallPath\Assets" -Force | Out-Null
         New-Item -ItemType Directory -Path "$InstallPath\Config" -Force | Out-Null
         
-        # Helper to download with cache busting and better error handling
+        # Helper to download with retry logic and robust error handling
         function Download-File {
             param($RemotePath, $LocalPath)
-            try {
-                $cb = Get-Random
-                # Ensure directory exists before downloading
-                $parentDir = Split-Path -Parent $LocalPath
-                if (-not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
-                
-                Write-Host "Downloading $RemotePath..." -NoNewline
-                
-                $fullUrl = "$RepoUrl/$RemotePath?v=$cb"
-                # Write-Host " [DEBUG: URL=$fullUrl] " -NoNewline -ForegroundColor DarkGray
+            $MaxRetries = 3
+            $RetryDelaySeconds = 2
+            $BaseUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
+            
+            # Ensure directory exists before downloading
+            $parentDir = Split-Path -Parent $LocalPath
+            if (-not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
 
+            $attempt = 0
+            $downloaded = $false
+            
+            while (-not $downloaded -and $attempt -lt $MaxRetries) {
+                $attempt++
                 try {
-                    # Primary Method: WebClient with User-Agent
+                    $timestamp = Get-Date -Format "HH:mm:ss"
+                    Write-Host "[$timestamp] Downloading $RemotePath (Attempt $attempt/$MaxRetries)..." -NoNewline
+                    
+                    # Try WebClient first (fastest) with User-Agent
                     $wc = New-Object System.Net.WebClient
                     $wc.Headers.Add("User-Agent", "PowerShell IlumnulOS Bootstrapper")
-                    $wc.DownloadFile($fullUrl, $LocalPath)
-                    Write-Host " [OK]" -ForegroundColor Green
+                    
+                    # Add a random query parameter to bypass caching
+                    $cb = Get-Random
+                    $url = "$BaseUrl/$RemotePath?v=$cb"
+                    
+                    $wc.DownloadFile($url, $LocalPath)
+                    
+                    # Basic integrity check (Size > 0)
+                    # Note: SHA-256 validation skipped as we don't have a manifest of hashes.
+                    if (Test-Path $LocalPath) {
+                        $size = (Get-Item $LocalPath).Length
+                        if ($size -gt 0) {
+                            Write-Host " [OK] ($size bytes)" -ForegroundColor Green
+                            $downloaded = $true
+                        } else {
+                            throw "Downloaded file is empty."
+                        }
+                    } else {
+                        throw "File not found after download."
+                    }
                 } catch {
-                    # Fallback Method 1: Invoke-WebRequest (No Cache Buster)
-                    try {
-                        $fallbackUrl = "$RepoUrl/$RemotePath"
-                        # Write-Host " [Retry without cache buster] " -NoNewline -ForegroundColor Yellow
-                        Invoke-WebRequest -Uri $fallbackUrl -OutFile $LocalPath -ErrorAction Stop
-                        Write-Host " [OK (Fallback)]" -ForegroundColor Green
-                    } catch {
-                        throw $_ # Re-throw original or fallback error
+                    Write-Host " [FAILED]" -ForegroundColor Red
+                    Write-Host "    Error: $_" -ForegroundColor DarkGray
+                    
+                    if ($attempt -lt $MaxRetries) {
+                        $sleep = $RetryDelaySeconds * [math]::Pow(2, $attempt - 1)
+                        Write-Host "    Retrying in $sleep seconds..." -ForegroundColor Yellow
+                        Start-Sleep -Seconds $sleep
                     }
                 }
-            } catch {
-                Write-Host " [FAILED]" -ForegroundColor Red
-                Write-Error "Failed to download $RemotePath. Details: $_"
+            }
+            
+            if (-not $downloaded) {
+                Write-Error "CRITICAL: Failed to download $RemotePath after $MaxRetries attempts. Aborting bootstrapper."
+                Read-Host "Press Enter to exit..."
+                exit 1
             }
         }
     
