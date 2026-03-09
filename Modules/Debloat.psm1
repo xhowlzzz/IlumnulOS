@@ -820,8 +820,8 @@ function Remove-Bloatware {
         "WdiContextLog", "WFP-IPsec Trace", "WiFiDriverIHVSession", "WiFiDriverIHVSessionRepro", "WiFiSession",
         "WinPhoneCritical"
     )
-    foreach ($logName in $autoLoggersList) {
-        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\$logName" "Start" 0
+    foreach ($autoLogName in $autoLoggersList) {
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\$autoLogName" "Start" 0
     }
     
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF" "LogEnable" 0
