@@ -36,18 +36,25 @@ if (-not $ScriptPath) {
         New-Item -ItemType Directory -Path "$InstallPath\Assets" -Force | Out-Null
         New-Item -ItemType Directory -Path "$InstallPath\Config" -Force | Out-Null
         
-        # Helper to download with cache busting
+        # Helper to download with cache busting and better error handling
         function Download-File {
             param($RemotePath, $LocalPath)
             try {
                 $cb = Get-Random
+                # Ensure directory exists before downloading
+                $parentDir = Split-Path -Parent $LocalPath
+                if (-not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
+                
                 Write-Host "Downloading $RemotePath..." -NoNewline
-                Invoke-WebRequest -Uri "$RepoUrl/$RemotePath?v=$cb" -OutFile "$LocalPath" -UseBasicParsing
+                
+                # Use WebClient for better compatibility if Invoke-WebRequest fails or is slow
+                $wc = New-Object System.Net.WebClient
+                $wc.DownloadFile("$RepoUrl/$RemotePath?v=$cb", $LocalPath)
+                
                 Write-Host " [OK]" -ForegroundColor Green
             } catch {
                 Write-Host " [FAILED]" -ForegroundColor Red
-                # Don't exit the shell, just warn
-                Write-Error "Failed to download $RemotePath. Check internet connection."
+                Write-Error "Failed to download $RemotePath. Details: $_"
             }
         }
     
