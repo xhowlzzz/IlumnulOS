@@ -107,17 +107,17 @@ function Remove-WindowsAI {
     # Ensure Appx and Dism modules are available
     if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
         Log "Warning: Get-AppxPackage not found. Attempting to load Appx module..."
-        Import-Module Appx -Force -ErrorAction SilentlyContinue
+        Import-Module Appx -ErrorAction SilentlyContinue
     }
     
     if (-not (Get-Command Get-AppxProvisionedPackage -ErrorAction SilentlyContinue)) {
         Log "Warning: Get-AppxProvisionedPackage not found. Attempting to load Dism module..."
-        Import-Module Dism -Force -ErrorAction SilentlyContinue
+        Import-Module Dism -ErrorAction SilentlyContinue
     }
 
     if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
         Log "Warning: Get-ScheduledTask not found. Attempting to load ScheduledTasks module..."
-        Import-Module ScheduledTasks -Force -ErrorAction SilentlyContinue
+        Import-Module ScheduledTasks -ErrorAction SilentlyContinue
     }
 
     $aiPackages = @(
