@@ -115,31 +115,46 @@ function Start-AsyncOperation {
 
     # Create the runspace
     # In 'irm | iex' scenarios, default session states are often broken.
-    # We must explicitly add the cmdlets we need instead of relying on module auto-loading.
     $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-    
-    # Import modules into the session state using ImportPSModule is unreliable in 'irm' context.
-    # We will try to add the core cmdlets we need directly if modules fail.
-    # However, the most robust way is to re-import them inside the scriptblock with full paths if possible.
-    # Since we can't easily get full paths in a temp session, we rely on Import-Module.
     
     $rs = [PowerShell]::Create($iss)
     
+    # Capture host environment variables that might be missing in the runspace
+    $hostModulePath = $env:PSModulePath
+    
     # Add necessary modules and functions to the runspace
-    # We need to import the modules inside the runspace or define the functions
-    # Since modules are .psm1 files, we can import them by path
     $modulePath = $global:ScriptPath # Pass the script path
     if (-not $modulePath) { $modulePath = $PWD.Path }
     
     $rs.AddScript({
-        param($Path, $SyncHash, $Task, $SuccessMsg)
+        param($Path, $SyncHash, $Task, $SuccessMsg, $HostModulePath)
+
+        # FIX: Restore PSModulePath and ensure System32 modules are visible
+        if ($HostModulePath) {
+            $env:PSModulePath = $HostModulePath
+        }
+        
+        # Explicitly add System32 PowerShell modules path if missing
+        $sysModPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
+        if ($env:PSModulePath -notlike "*$sysModPath*") {
+            $env:PSModulePath = "$sysModPath;$env:PSModulePath"
+        }
 
         # Import system modules to ensure commands are available in the Runspace
-        # Force import by full name if possible, or skip error check to see real failure
-        $modules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender")
+        # We try both by name and by absolute path to be bulletproof
+        $modules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender", "NetSecurity", "MMAgent")
         foreach ($mod in $modules) {
-            # Try importing without checking ListAvailable first, as ListAvailable can fail in restricted runspaces
+            # 1. Try normal import
             Import-Module $mod -Force -ErrorAction SilentlyContinue
+            
+            # 2. If cmdlet still not found (check one known cmdlet), try absolute path
+            # This is a fallback for extremely restricted environments
+            if (-not (Get-Module $mod)) {
+                $absPath = Join-Path $sysModPath "$mod\$mod.psd1"
+                if (Test-Path $absPath) {
+                    Import-Module $absPath -Force -ErrorAction SilentlyContinue
+                }
+            }
         }
         
         # Define Log function inside runspace that calls back to UI
@@ -179,7 +194,7 @@ function Start-AsyncOperation {
         } catch {
             Log "ERROR: $_"
         }
-    }).AddArgument($modulePath).AddArgument($syncHash).AddArgument($ScriptBlock).AddArgument($SuccessMessage)
+    }).AddArgument($modulePath).AddArgument($syncHash).AddArgument($ScriptBlock).AddArgument($SuccessMessage).AddArgument($hostModulePath)
 
     # Run async
     $rs.BeginInvoke()
