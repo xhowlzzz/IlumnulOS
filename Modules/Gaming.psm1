@@ -361,7 +361,7 @@ function Invoke-NvidiaProfile {
     try {
         $config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
         $zipUrl = $config.Tools.NvidiaInspector.Url
-        $expectedHash = $config.Tools.NvidiaInspector.Hash
+        # $expectedHash = $config.Tools.NvidiaInspector.Hash
         $profileUrl = $config.Tools.IlumnulProfile.Url
     } catch {
         Log "Error reading configuration: $_"
@@ -387,20 +387,8 @@ function Invoke-NvidiaProfile {
             $wc.DownloadFile($zipUrl, $zipPath)
         }
 
-        # Hash Verification
-        if ($expectedHash) {
-            Log "Verifying Hash..."
-            $fileHash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash
-            if ($fileHash -ne $expectedHash) {
-                Log "CRITICAL SECURITY WARNING: Hash mismatch!"
-                Log "Expected: $expectedHash"
-                Log "Actual:   $fileHash"
-                Log "Aborting execution."
-                return
-            } else {
-                Log "Hash verified successfully."
-            }
-        }
+        # Hash Verification Skipped as requested
+        # if ($expectedHash) { ... }
 
         Log "Extracting..."
         Expand-Archive -Path $zipPath -DestinationPath $destDir -Force -ErrorAction Stop
