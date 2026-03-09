@@ -43,43 +43,56 @@ if (-not $ScriptPath) {
             $MaxRetries = 3
             $RetryDelaySeconds = 2
             $BaseUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
-            
-            # Ensure directory exists before downloading
+            $ApiBaseUrl = "https://api.github.com/repos/xhowlzzz/IlumnulOS/contents"
+            $headers = @{ "User-Agent" = "PowerShell" }
+
             $parentDir = Split-Path -Parent $LocalPath
             if (-not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
 
             $attempt = 0
             $downloaded = $false
-            
+            $lastError = ""
+
             while (-not $downloaded -and $attempt -lt $MaxRetries) {
                 $attempt++
-                try {
-                    $timestamp = Get-Date -Format "HH:mm:ss"
-                    Write-Host "[$timestamp] Downloading $RemotePath (Attempt $attempt/$MaxRetries)..." -NoNewline
-                    
-                    # Add a random query parameter to bypass caching
-                    $cb = Get-Random
-                    $url = "$BaseUrl/$RemotePath?v=$cb"
-                    
-                    # Use Invoke-WebRequest directly (Simpler and often more robust in newer PS versions)
-                    Invoke-WebRequest -Uri $url -OutFile $LocalPath -ErrorAction Stop -UserAgent "PowerShell"
-                    
-                    # Basic integrity check (Size > 0)
-                    if (Test-Path $LocalPath) {
-                        $size = (Get-Item $LocalPath).Length
-                        if ($size -gt 0) {
-                            Write-Host " [OK] ($size bytes)" -ForegroundColor Green
-                            $downloaded = $true
+                $timestamp = Get-Date -Format "HH:mm:ss"
+                Write-Host "[$timestamp] Downloading $RemotePath (Attempt $attempt/$MaxRetries)..." -NoNewline
+
+                $cb = Get-Random
+                $candidates = @(
+                    "$BaseUrl/$RemotePath?v=$cb",
+                    "$BaseUrl/$RemotePath",
+                    "$ApiBaseUrl/$RemotePath?ref=main"
+                )
+
+                foreach ($candidate in $candidates) {
+                    try {
+                        if ($candidate -like "https://api.github.com/*") {
+                            $json = Invoke-RestMethod -Uri $candidate -Headers $headers -ErrorAction Stop
+                            if (-not $json.content) { throw "GitHub API response has no content field." }
+                            $bytes = [Convert]::FromBase64String(($json.content -replace "`n",""))
+                            [System.IO.File]::WriteAllBytes($LocalPath, $bytes)
                         } else {
-                            throw "Downloaded file is empty."
+                            Invoke-WebRequest -Uri $candidate -OutFile $LocalPath -Headers $headers -ErrorAction Stop
                         }
-                    } else {
-                        throw "File not found after download."
+
+                        if (Test-Path $LocalPath) {
+                            $size = (Get-Item $LocalPath).Length
+                            if ($size -gt 0) {
+                                Write-Host " [OK] ($size bytes)" -ForegroundColor Green
+                                $downloaded = $true
+                                break
+                            }
+                        }
+                        throw "Downloaded file is missing or empty."
+                    } catch {
+                        $lastError = "URL: $candidate | Error: $($_.Exception.Message)"
                     }
-                } catch {
+                }
+
+                if (-not $downloaded) {
                     Write-Host " [FAILED]" -ForegroundColor Red
-                    Write-Host "    Error: $_" -ForegroundColor DarkGray
-                    
+                    Write-Host "    $lastError" -ForegroundColor DarkGray
                     if ($attempt -lt $MaxRetries) {
                         $sleep = $RetryDelaySeconds * [math]::Pow(2, $attempt - 1)
                         Write-Host "    Retrying in $sleep seconds..." -ForegroundColor Yellow
@@ -87,21 +100,33 @@ if (-not $ScriptPath) {
                     }
                 }
             }
-            
+
             if (-not $downloaded) {
-                Write-Error "CRITICAL: Failed to download $RemotePath after $MaxRetries attempts. Aborting bootstrapper."
-                Read-Host "Press Enter to exit..."
-                exit 1
+                Write-Error "CRITICAL: Failed to download $RemotePath after $MaxRetries attempts."
+                return $false
             }
+            return $true
         }
     
     # Download Core Files
-    Download-File "Assets/MainWindow.xaml" "$InstallPath\Assets\MainWindow.xaml"
-    Download-File "Config/settings.json" "$InstallPath\Config\settings.json"
-    Download-File "Modules/Debloat.psm1" "$InstallPath\Modules\Debloat.psm1"
-    Download-File "Modules/Gaming.psm1" "$InstallPath\Modules\Gaming.psm1"
-    Download-File "Modules/Optimize.psm1" "$InstallPath\Modules\Optimize.psm1"
-    Download-File "Modules/RemoveAI.psm1" "$InstallPath\Modules\RemoveAI.psm1"
+    $requiredFiles = @(
+        @{ Remote = "Assets/MainWindow.xaml"; Local = "$InstallPath\Assets\MainWindow.xaml" },
+        @{ Remote = "Config/settings.json"; Local = "$InstallPath\Config\settings.json" },
+        @{ Remote = "Modules/Debloat.psm1"; Local = "$InstallPath\Modules\Debloat.psm1" },
+        @{ Remote = "Modules/Gaming.psm1"; Local = "$InstallPath\Modules\Gaming.psm1" },
+        @{ Remote = "Modules/Optimize.psm1"; Local = "$InstallPath\Modules\Optimize.psm1" },
+        @{ Remote = "Modules/RemoveAI.psm1"; Local = "$InstallPath\Modules\RemoveAI.psm1" }
+    )
+
+    $hasFailure = $false
+    foreach ($file in $requiredFiles) {
+        $ok = Download-File $file.Remote $file.Local
+        if (-not $ok) { $hasFailure = $true }
+    }
+    if ($hasFailure) {
+        Read-Host "Press Enter to exit..."
+        return
+    }
     
     $ScriptPath = $InstallPath
     Write-Host "Bootstrapping Complete. Launching..." -ForegroundColor Green
