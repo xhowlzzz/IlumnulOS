@@ -244,13 +244,34 @@ function Start-AsyncOperation {
                 if ($SyncHash.Window -and -not $SyncHash.Window.Dispatcher.HasShutdownStarted) {
                     $timestamp = Get-Date -Format "HH:mm:ss"
                     $null = $SyncHash.Window.Dispatcher.BeginInvoke([Action]{
-                        if ($SyncHash.OutputBox) {
-                            $SyncHash.OutputBox.Text += "[$timestamp] $msg`n"
-                            if ($SyncHash.OutputBox.Parent -is [System.Windows.Controls.ScrollViewer]) {
-                                $SyncHash.OutputBox.Parent.ScrollToBottom()
+                        try {
+                            if ($SyncHash.OutputBox) {
+                                $line = "[$timestamp] $msg`n"
+                                if ($SyncHash.OutputBox.Dispatcher.CheckAccess()) {
+                                    $SyncHash.OutputBox.Text += $line
+                                    if ($SyncHash.OutputBox.Parent -is [System.Windows.Controls.ScrollViewer]) {
+                                        $SyncHash.OutputBox.Parent.ScrollToBottom()
+                                    }
+                                } else {
+                                    $ob = $SyncHash.OutputBox
+                                    $null = $ob.Dispatcher.BeginInvoke([Action]{
+                                        $ob.Text += $line
+                                        if ($ob.Parent -is [System.Windows.Controls.ScrollViewer]) {
+                                            $ob.Parent.ScrollToBottom()
+                                        }
+                                    })
+                                }
                             }
-                        }
-                        if ($SyncHash.StatusBox) { $SyncHash.StatusBox.Text = $msg }
+                            if ($SyncHash.StatusBox) {
+                                if ($SyncHash.StatusBox.Dispatcher.CheckAccess()) {
+                                    $SyncHash.StatusBox.Text = $msg
+                                } else {
+                                    $sb = $SyncHash.StatusBox
+                                    $smsg = $msg
+                                    $null = $sb.Dispatcher.BeginInvoke([Action]{ $sb.Text = $smsg })
+                                }
+                            }
+                        } catch {}
                     })
                 }
             } catch {
@@ -263,15 +284,7 @@ function Start-AsyncOperation {
         
         # Debug Log for Troubleshooting Path Issues
         $timestamp = Get-Date -Format "HH:mm:ss"
-        try {
-            if ($SyncHash.Window -and -not $SyncHash.Window.Dispatcher.HasShutdownStarted) {
-                $null = $SyncHash.Window.Dispatcher.BeginInvoke([Action]{
-                     if ($SyncHash.OutputBox) {
-                         $SyncHash.OutputBox.Text += "[$timestamp] Runspace Initialized. Root Path: '$Path'`n"
-                     }
-                })
-            }
-        } catch {}
+        Log "Runspace Initialized. Root Path: '$Path'"
 
         # FIX: Restore PSModulePath and ensure System32 modules are visible
         if ($HostModulePath) {
@@ -540,19 +553,19 @@ try {
     $timer.Interval = [TimeSpan]::FromSeconds(1)
     $timer.Add_Tick({
         try {
-            if ($txtCpuLoad) { $txtCpuLoad.Text = $syncHash.CpuLoad }
+            Set-ControlTextSafe -Control $txtCpuLoad -Value $syncHash.CpuLoad
             if ($pbCpu) { $pbCpu.Value = $syncHash.CpuRaw }
-            if ($txtCpuDetail) { $txtCpuDetail.Text = $syncHash.CpuDetail }
+            Set-ControlTextSafe -Control $txtCpuDetail -Value $syncHash.CpuDetail
 
-            if ($txtRamDetail) { $txtRamDetail.Text = $syncHash.RamDetail }
-            if ($txtRamLoad) { $txtRamLoad.Text = $syncHash.RamLoad }
+            Set-ControlTextSafe -Control $txtRamDetail -Value $syncHash.RamDetail
+            Set-ControlTextSafe -Control $txtRamLoad -Value $syncHash.RamLoad
             if ($pbRam) { $pbRam.Value = $syncHash.RamPercent }
 
-            if ($txtDiskDetail) { $txtDiskDetail.Text = $syncHash.DiskDetail }
-            if ($txtDiskLoad) { $txtDiskLoad.Text = $syncHash.DiskLoad }
+            Set-ControlTextSafe -Control $txtDiskDetail -Value $syncHash.DiskDetail
+            Set-ControlTextSafe -Control $txtDiskLoad -Value $syncHash.DiskLoad
             if ($pbDisk) { $pbDisk.Value = $syncHash.DiskPercent }
 
-            if ($txtUptime) { $txtUptime.Text = $syncHash.Uptime }
+            Set-ControlTextSafe -Control $txtUptime -Value $syncHash.Uptime
         } catch { }
     })
     $timer.Start()
@@ -599,6 +612,20 @@ try {
     $window.FindName("navSettings").Add_Click({ Switch-View "Settings" })
     $window.FindName("navTerminal").Add_Click({ Switch-View "Terminal" })
 
+    function Set-ControlTextSafe {
+        param($Control, [string]$Value)
+        if (-not $Control) { return }
+        try {
+            if ($Control.Dispatcher.CheckAccess()) {
+                $Control.Text = $Value
+            } else {
+                $target = $Control
+                $textValue = $Value
+                $null = $target.Dispatcher.BeginInvoke([Action]{ $target.Text = $textValue })
+            }
+        } catch {}
+    }
+
     # Logging System
     $txtTerminalOutput = $window.FindName("txtTerminalOutput")
     $txtStatus = $window.FindName("txtStatus")
@@ -613,7 +640,7 @@ try {
                     $txtTerminalOutput.Parent.ScrollToBottom()
                 }
             }
-            if ($txtStatus) { $txtStatus.Text = $Message }
+            Set-ControlTextSafe -Control $txtStatus -Value $Message
         }
         try {
             if ($window -and $window.Dispatcher.CheckAccess()) {
@@ -634,7 +661,7 @@ try {
         } catch {}
     })
     
-    $window.FindName("btnClearTerminal").Add_Click({ if ($txtTerminalOutput) { $txtTerminalOutput.Text = "" } })
+    $window.FindName("btnClearTerminal").Add_Click({ Set-ControlTextSafe -Control $txtTerminalOutput -Value "" })
 
     # Actions
     $btnOneClick = $window.FindName("btnOneClick")
