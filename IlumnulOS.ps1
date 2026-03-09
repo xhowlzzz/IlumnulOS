@@ -172,7 +172,8 @@ function Start-AsyncOperation {
     param(
         [ScriptBlock]$ScriptBlock,
         [string]$SuccessMessage = "Operation Completed.",
-        [switch]$ShowTerminal = $true
+        [switch]$ShowTerminal = $true,
+        [hashtable]$OperationOptions = @{}
     )
 
     if ($ShowTerminal) {
@@ -229,7 +230,7 @@ function Start-AsyncOperation {
     if (-not $modulePath) { $modulePath = $PWD.Path } # Fallback to PWD
     
     $rs.AddScript({
-        param($Path, $SyncHash, $Task, $SuccessMsg, $HostModulePath)
+        param($Path, $SyncHash, $Task, $SuccessMsg, $HostModulePath, $TaskOptions)
 
         # Set Global Root for modules to use
         $global:IlumnulRoot = $Path
@@ -328,13 +329,13 @@ function Start-AsyncOperation {
             
             # Execute the task
             Log "Starting Operation..."
-            & $Task -Logger $LoggerProxy
+            & $Task -Logger $LoggerProxy -Options $TaskOptions
             Log $SuccessMsg
             
         } catch {
             Log "ERROR: $_"
         }
-    }).AddArgument($modulePath).AddArgument($syncHash).AddArgument($ScriptBlock).AddArgument($SuccessMessage).AddArgument($hostModulePath)
+    }).AddArgument($modulePath).AddArgument($syncHash).AddArgument($ScriptBlock).AddArgument($SuccessMessage).AddArgument($hostModulePath).AddArgument($OperationOptions)
 
     # Run async
     $rs.BeginInvoke()
@@ -567,13 +568,41 @@ try {
     $btnRunPrivacy = $window.FindName("btnRunPrivacy")
     $btnRunAI = $window.FindName("btnRunAI")
     $btnRunOptimize = $window.FindName("btnRunOptimize")
+    $chkRemoveAppx = $window.FindName("chkRemoveAppx")
+    $chkRemoveOneDrive = $window.FindName("chkRemoveOneDrive")
+    $chkRemoveCortana = $window.FindName("chkRemoveCortana")
+    $chkDisableServices = $window.FindName("chkDisableServices")
+    $chkGameMode = $window.FindName("chkGameMode")
+    $chkGPUPriority = $window.FindName("chkGPUPriority")
+    $chkDisableGameBar = $window.FindName("chkDisableGameBar")
+    $chkHAGS = $window.FindName("chkHAGS")
+    $chkNetworkTweaks = $window.FindName("chkNetworkTweaks")
+    $chkDisableTelemetry = $window.FindName("chkDisableTelemetry")
+    $chkDisableAdvertising = $window.FindName("chkDisableAdvertising")
+    $chkDisableLocation = $window.FindName("chkDisableLocation")
+    $chkDisableCopilot = $window.FindName("chkDisableCopilot")
+    $chkDisableRecall = $window.FindName("chkDisableRecall")
+    $chkDisableOfficeAI = $window.FindName("chkDisableOfficeAI")
+    $chkPowerPlan = $window.FindName("chkPowerPlan")
+    $chkDisableHibernation = $window.FindName("chkDisableHibernation")
+    $chkDisableSearchIndexing = $window.FindName("chkDisableSearchIndexing")
+    $chkVisualEffects = $window.FindName("chkVisualEffects")
 
     $logAction = [Action[string]] { param($msg) Log-Message $msg }
 
     if ($btnRunDebloat) {
         $btnRunDebloat.Add_Click({
             if ([System.Windows.MessageBox]::Show("This will remove pre-installed apps and disable services. Continue?", "Confirm Debloat", "YesNo", "Warning") -eq "Yes") {
-                Start-AsyncOperation -ScriptBlock { param($Logger) Remove-Bloatware -Logger $Logger } -SuccessMessage "Debloat Finished."
+                $opts = @{
+                    RemoveAppx = [bool]$chkRemoveAppx.IsChecked
+                    RemoveOneDrive = [bool]$chkRemoveOneDrive.IsChecked
+                    RemoveCortana = [bool]$chkRemoveCortana.IsChecked
+                    DisableServices = [bool]$chkDisableServices.IsChecked
+                    DisableTelemetry = $true
+                    DisableAdvertising = $true
+                    DisableLocation = $true
+                }
+                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Remove-Bloatware -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "Debloat Finished."
             }
         })
     }
@@ -581,7 +610,14 @@ try {
     if ($btnRunGaming) {
         $btnRunGaming.Add_Click({
             if ([System.Windows.MessageBox]::Show("This will apply gaming optimizations and power plans. Continue?", "Confirm Gaming Boost", "YesNo", "Information") -eq "Yes") {
-                Start-AsyncOperation -ScriptBlock { param($Logger) Invoke-GamingOptimization -Logger $Logger } -SuccessMessage "Gaming Boost Finished."
+                $opts = @{
+                    GameMode = [bool]$chkGameMode.IsChecked
+                    GPUPriority = [bool]$chkGPUPriority.IsChecked
+                    DisableGameBar = [bool]$chkDisableGameBar.IsChecked
+                    HAGS = [bool]$chkHAGS.IsChecked
+                    NetworkTweaks = [bool]$chkNetworkTweaks.IsChecked
+                }
+                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Invoke-GamingOptimization -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "Gaming Boost Finished."
             }
         })
     }
@@ -589,7 +625,7 @@ try {
     if ($btnNvidiaProfile) {
         $btnNvidiaProfile.Add_Click({
             if ([System.Windows.MessageBox]::Show("This will download and apply a custom NVIDIA Profile. Continue?", "Confirm NVIDIA Profile", "YesNo", "Information") -eq "Yes") {
-                Start-AsyncOperation -ScriptBlock { param($Logger) Invoke-NvidiaProfile -Logger $Logger } -SuccessMessage "NVIDIA Profile Process Finished."
+                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Invoke-NvidiaProfile -Logger $Logger } -SuccessMessage "NVIDIA Profile Process Finished."
             }
         })
     }
@@ -597,7 +633,16 @@ try {
     if ($btnRunPrivacy) {
         $btnRunPrivacy.Add_Click({
             if ([System.Windows.MessageBox]::Show("This will disable telemetry and tracking features. Continue?", "Confirm Privacy", "YesNo", "Information") -eq "Yes") {
-                Start-AsyncOperation -ScriptBlock { param($Logger) Remove-Bloatware -Logger $Logger } -SuccessMessage "Privacy Tweaks Applied."
+                $opts = @{
+                    RemoveAppx = $false
+                    RemoveOneDrive = $false
+                    RemoveCortana = $false
+                    DisableServices = $false
+                    DisableTelemetry = [bool]$chkDisableTelemetry.IsChecked
+                    DisableAdvertising = [bool]$chkDisableAdvertising.IsChecked
+                    DisableLocation = [bool]$chkDisableLocation.IsChecked
+                }
+                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Remove-Bloatware -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "Privacy Tweaks Applied."
             }
         })
     }
@@ -605,7 +650,12 @@ try {
     if ($btnRunAI) {
         $btnRunAI.Add_Click({
             if ([System.Windows.MessageBox]::Show("WARNING: This will permanently remove Copilot, Recall, and AI components. This action is aggressive. Continue?", "Confirm AI Removal", "YesNo", "Warning") -eq "Yes") {
-                Start-AsyncOperation -ScriptBlock { param($Logger) Remove-WindowsAI -Logger $Logger } -SuccessMessage "AI Removal Complete."
+                $opts = @{
+                    DisableCopilot = [bool]$chkDisableCopilot.IsChecked
+                    DisableRecall = [bool]$chkDisableRecall.IsChecked
+                    DisableOfficeAI = [bool]$chkDisableOfficeAI.IsChecked
+                }
+                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Remove-WindowsAI -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "AI Removal Complete."
             }
         })
     }
@@ -613,7 +663,13 @@ try {
     if ($btnRunOptimize) {
         $btnRunOptimize.Add_Click({
             if ([System.Windows.MessageBox]::Show("This will apply general system performance tweaks. Continue?", "Confirm Optimization", "YesNo", "Information") -eq "Yes") {
-                Start-AsyncOperation -ScriptBlock { param($Logger) Invoke-SystemOptimization -Logger $Logger } -SuccessMessage "System Optimization Finished."
+                $opts = @{
+                    PowerPlan = [bool]$chkPowerPlan.IsChecked
+                    DisableHibernation = [bool]$chkDisableHibernation.IsChecked
+                    DisableSearchIndexing = [bool]$chkDisableSearchIndexing.IsChecked
+                    VisualEffects = [bool]$chkVisualEffects.IsChecked
+                }
+                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Invoke-SystemOptimization -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "System Optimization Finished."
             }
         })
     }
@@ -622,7 +678,7 @@ try {
         $btnOneClick.Add_Click({
             if ([System.Windows.MessageBox]::Show("ONE-CLICK MODE: This will run ALL optimizations (Debloat, Gaming, AI Removal, System). This may take a while. Are you sure?", "Confirm One-Click", "YesNo", "Warning") -eq "Yes") {
                 Start-AsyncOperation -ScriptBlock { 
-                    param($Logger) 
+                    param($Logger, $Options)
                     Invoke-SystemOptimization -Logger $Logger
                     Invoke-GamingOptimization -Logger $Logger
                     Remove-Bloatware -Logger $Logger
