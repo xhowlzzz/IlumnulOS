@@ -46,8 +46,8 @@ if (-not $ScriptPath) {
                 Write-Host " [OK]" -ForegroundColor Green
             } catch {
                 Write-Host " [FAILED]" -ForegroundColor Red
+                # Don't exit the shell, just warn
                 Write-Error "Failed to download $RemotePath. Check internet connection."
-                exit
             }
         }
     
