@@ -123,7 +123,7 @@ function Start-AsyncOperation {
     # Pre-load critical system modules into the InitialSessionState
     # This is more reliable than Import-Module inside the scriptblock for restricted contexts
     $sysModPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
-    $criticalModules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender", "NetSecurity", "MMAgent")
+    $criticalModules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender", "NetSecurity", "MMAgent", "Microsoft.PowerShell.Archive")
     
     foreach ($mod in $criticalModules) {
         try {
@@ -185,6 +185,7 @@ function Start-AsyncOperation {
              Import-Module "$sysNativeModPath\Appx\Appx.psd1" -Force -ErrorAction SilentlyContinue
              Import-Module "$sysNativeModPath\Dism\Dism.psd1" -Force -ErrorAction SilentlyContinue
              Import-Module "$sysNativeModPath\ScheduledTasks\ScheduledTasks.psd1" -Force -ErrorAction SilentlyContinue
+             Import-Module "$sysNativeModPath\Microsoft.PowerShell.Archive\Microsoft.PowerShell.Archive.psd1" -Force -ErrorAction SilentlyContinue
         } else {
              if ($env:PSModulePath -notlike "*$sysModPath*") {
                 $env:PSModulePath = "$sysModPath;$env:PSModulePath"
@@ -193,6 +194,7 @@ function Start-AsyncOperation {
              Import-Module "$sysModPath\Appx\Appx.psd1" -Force -ErrorAction SilentlyContinue
              Import-Module "$sysModPath\Dism\Dism.psd1" -Force -ErrorAction SilentlyContinue
              Import-Module "$sysModPath\ScheduledTasks\ScheduledTasks.psd1" -Force -ErrorAction SilentlyContinue
+             Import-Module "$sysModPath\Microsoft.PowerShell.Archive\Microsoft.PowerShell.Archive.psd1" -Force -ErrorAction SilentlyContinue
         }
 
         # Define Log function inside runspace that calls back to UI
