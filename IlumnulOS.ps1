@@ -605,16 +605,34 @@ try {
     
     function Log-Message {
         param([string]$Message)
-        $timestamp = Get-Date -Format "HH:mm:ss"
-        if ($txtTerminalOutput) {
-            $txtTerminalOutput.Text += "[$timestamp] $Message`n"
-            if ($txtTerminalOutput.Parent -is [System.Windows.Controls.ScrollViewer]) {
-                $txtTerminalOutput.Parent.ScrollToBottom()
+        $appendUi = {
+            $timestamp = Get-Date -Format "HH:mm:ss"
+            if ($txtTerminalOutput) {
+                $txtTerminalOutput.Text += "[$timestamp] $Message`n"
+                if ($txtTerminalOutput.Parent -is [System.Windows.Controls.ScrollViewer]) {
+                    $txtTerminalOutput.Parent.ScrollToBottom()
+                }
             }
+            if ($txtStatus) { $txtStatus.Text = $Message }
         }
-        if ($txtStatus) { $txtStatus.Text = $Message }
-        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
+        try {
+            if ($window -and $window.Dispatcher.CheckAccess()) {
+                & $appendUi
+            } else {
+                $null = $window.Dispatcher.BeginInvoke([Action]$appendUi)
+            }
+        } catch {
+            Write-Host $Message
+        }
     }
+
+    $window.Dispatcher.add_UnhandledException({
+        param($sender, $e)
+        try {
+            Log-Message "UI Exception: $($e.Exception.Message)"
+            $e.Handled = $true
+        } catch {}
+    })
     
     $window.FindName("btnClearTerminal").Add_Click({ if ($txtTerminalOutput) { $txtTerminalOutput.Text = "" } })
 
