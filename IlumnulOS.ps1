@@ -3,6 +3,7 @@
 # Features: Glass/iOS-like UI, Animations, Modern Design, Loading Screen, Custom Terminal (#517755)
 
 # Load required assemblies
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
@@ -49,6 +50,7 @@ if (-not $ScriptPath) {
                 
                 # Use WebClient for better compatibility if Invoke-WebRequest fails or is slow
                 $wc = New-Object System.Net.WebClient
+                $wc.Headers.Add("User-Agent", "PowerShell")
                 $wc.DownloadFile("$RepoUrl/$RemotePath?v=$cb", $LocalPath)
                 
                 Write-Host " [OK]" -ForegroundColor Green
