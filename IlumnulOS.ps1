@@ -206,10 +206,14 @@ function Start-AsyncOperation {
              Import-Module "Microsoft.PowerShell.Archive" -Force -ErrorAction SilentlyContinue
         }
 
-        # FINAL CHECK: If Get-AppxPackage is still missing, try one more time blindly
+        # FINAL CHECK: If modules are still missing, try one more time blindly
         if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
             Log "WARNING: Get-AppxPackage missing. Attempting blind import..."
             Import-Module Appx -Force -ErrorAction SilentlyContinue
+        }
+        if (-not (Get-Command Get-AppxProvisionedPackage -ErrorAction SilentlyContinue)) {
+            Log "WARNING: Get-AppxProvisionedPackage missing. Attempting blind import..."
+            Import-Module Dism -Force -ErrorAction SilentlyContinue
         }
 
         # Define Log function inside runspace that calls back to UI
