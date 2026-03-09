@@ -115,6 +115,11 @@ function Remove-WindowsAI {
         Import-Module Dism -Force -ErrorAction SilentlyContinue
     }
 
+    if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+        Log "Warning: Get-ScheduledTask not found. Attempting to load ScheduledTasks module..."
+        Import-Module ScheduledTasks -Force -ErrorAction SilentlyContinue
+    }
+
     $aiPackages = @(
         "*Microsoft.Windows.Ai.Copilot.Provider*",
         "*Microsoft.Windows.Recall*",
@@ -127,12 +132,23 @@ function Remove-WindowsAI {
     
     foreach ($pkg in $aiPackages) {
         try {
-            Get-AppxPackage -AllUsers $pkg | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
-            Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pkg } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
-            Log "Package: Removed $pkg"
+            $foundPkg = Get-AppxPackage -AllUsers $pkg -ErrorAction SilentlyContinue
+            if ($foundPkg) {
+                $foundPkg | Remove-AppxPackage -AllUsers -ErrorAction Stop
+                Log "Package: Removed $pkg"
+            }
         } catch {
-            Log "Package: Failed to remove $pkg - $_"
+            if ($_.Exception.Message -match "0x80070032" -or $_.Exception.Message -match "part of Windows") {
+                 Log "Package: Skipped $pkg (System Protected)"
+            } else {
+                 Log "Package: Failed to remove $pkg - $($_.Exception.Message)"
+            }
         }
+        
+        # Provisioned Packages (separate try/catch)
+        try {
+            Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pkg } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Out-Null
+        } catch {}
     }
 
     # Optional Features (Recall)
