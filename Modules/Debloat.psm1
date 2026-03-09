@@ -811,7 +811,7 @@ function Remove-Bloatware {
 
     # Disable AutoLoggers
     Log "Disabling AutoLoggers..."
-    $autoLoggers = @(
+    $autoLoggersList = @(
         "AppModel", "Cellcore", "Circular Kernel Context Logger", "CloudExperienceHostOobe", "DataMarket",
         "DefenderApiLogger", "DefenderAuditLogger", "DiagLog", "HolographicDevice", "iclsClient", "iclsProxy",
         "LwtNetLog", "Mellanox-Kernel", "Microsoft-Windows-AssignedAccess-Trace", "Microsoft-Windows-Setup",
@@ -820,8 +820,8 @@ function Remove-Bloatware {
         "WdiContextLog", "WFP-IPsec Trace", "WiFiDriverIHVSession", "WiFiDriverIHVSessionRepro", "WiFiSession",
         "WinPhoneCritical"
     )
-    foreach ($logger in $autoLoggers) {
-        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\$logger" "Start" 0
+    foreach ($logName in $autoLoggersList) {
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\$logName" "Start" 0
     }
     
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF" "LogEnable" 0
