@@ -116,7 +116,29 @@ function Start-AsyncOperation {
     # Create the runspace
     # In 'irm | iex' scenarios, default session states are often broken.
     $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $iss.LanguageMode = [System.Management.Automation.PSLanguageMode]::FullLanguage
     
+    # Pre-load critical system modules into the InitialSessionState
+    # This is more reliable than Import-Module inside the scriptblock for restricted contexts
+    $sysModPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
+    $criticalModules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender", "NetSecurity", "MMAgent")
+    
+    foreach ($mod in $criticalModules) {
+        try {
+            # Try to find the module manifest directly
+            $manifestPath = Join-Path $sysModPath "$mod\$mod.psd1"
+            if (Test-Path $manifestPath) {
+                $iss.ImportPSModule($manifestPath)
+            } else {
+                # Fallback to name import if path is different
+                $iss.ImportPSModule($mod)
+            }
+        } catch {
+            # Log error but continue - missing one module shouldn't break everything
+            Write-Host "Warning: Failed to pre-load module $mod - $_" -ForegroundColor Yellow
+        }
+    }
+
     $rs = [PowerShell]::Create($iss)
     
     # Capture host environment variables that might be missing in the runspace
@@ -129,6 +151,9 @@ function Start-AsyncOperation {
     $rs.AddScript({
         param($Path, $SyncHash, $Task, $SuccessMsg, $HostModulePath)
 
+        # Set Global Root for modules to use
+        $global:IlumnulRoot = $Path
+
         # FIX: Restore PSModulePath and ensure System32 modules are visible
         if ($HostModulePath) {
             $env:PSModulePath = $HostModulePath
@@ -140,23 +165,6 @@ function Start-AsyncOperation {
             $env:PSModulePath = "$sysModPath;$env:PSModulePath"
         }
 
-        # Import system modules to ensure commands are available in the Runspace
-        # We try both by name and by absolute path to be bulletproof
-        $modules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender", "NetSecurity", "MMAgent")
-        foreach ($mod in $modules) {
-            # 1. Try normal import
-            Import-Module $mod -Force -ErrorAction SilentlyContinue
-            
-            # 2. If cmdlet still not found (check one known cmdlet), try absolute path
-            # This is a fallback for extremely restricted environments
-            if (-not (Get-Module $mod)) {
-                $absPath = Join-Path $sysModPath "$mod\$mod.psd1"
-                if (Test-Path $absPath) {
-                    Import-Module $absPath -Force -ErrorAction SilentlyContinue
-                }
-            }
-        }
-        
         # Define Log function inside runspace that calls back to UI
         function Log($msg) {
             $timestamp = Get-Date -Format "HH:mm:ss"
