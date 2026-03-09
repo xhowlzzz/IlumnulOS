@@ -20,30 +20,36 @@ if (-not $ScriptPath) {
 }
 
 # Bootstrapper: Check if running remotely (missing local modules) and download them
-if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
-    Write-Host "Remote Execution Detected. Initializing IlumnulOS Bootstrapper..." -ForegroundColor Cyan
-    
-    $InstallPath = "$env:TEMP\IlumnulOS_v2"
-    $RepoUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
-    
-    # Create Directories
-    New-Item -ItemType Directory -Path "$InstallPath\Modules" -Force | Out-Null
-    New-Item -ItemType Directory -Path "$InstallPath\Assets" -Force | Out-Null
-    New-Item -ItemType Directory -Path "$InstallPath\Config" -Force | Out-Null
-    
-    # Helper to download
-    function Download-File {
-        param($RemotePath, $LocalPath)
-        try {
-            Write-Host "Downloading $RemotePath..." -NoNewline
-            Invoke-WebRequest -Uri "$RepoUrl/$RemotePath" -OutFile "$LocalPath" -UseBasicParsing
-            Write-Host " [OK]" -ForegroundColor Green
-        } catch {
-            Write-Host " [FAILED]" -ForegroundColor Red
-            Write-Error "Failed to download $RemotePath. Check internet connection."
-            exit
+    if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
+        Write-Host "Remote Execution Detected. Initializing IlumnulOS Bootstrapper..." -ForegroundColor Cyan
+        
+        $InstallPath = "$env:TEMP\IlumnulOS_v2"
+        $RepoUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
+        
+        # Clean cleanup to ensure fresh files
+        if (Test-Path $InstallPath) {
+            Remove-Item -Path $InstallPath -Recurse -Force -ErrorAction SilentlyContinue
         }
-    }
+
+        # Create Directories
+        New-Item -ItemType Directory -Path "$InstallPath\Modules" -Force | Out-Null
+        New-Item -ItemType Directory -Path "$InstallPath\Assets" -Force | Out-Null
+        New-Item -ItemType Directory -Path "$InstallPath\Config" -Force | Out-Null
+        
+        # Helper to download with cache busting
+        function Download-File {
+            param($RemotePath, $LocalPath)
+            try {
+                $cb = Get-Random
+                Write-Host "Downloading $RemotePath..." -NoNewline
+                Invoke-WebRequest -Uri "$RepoUrl/$RemotePath?v=$cb" -OutFile "$LocalPath" -UseBasicParsing
+                Write-Host " [OK]" -ForegroundColor Green
+            } catch {
+                Write-Host " [FAILED]" -ForegroundColor Red
+                Write-Error "Failed to download $RemotePath. Check internet connection."
+                exit
+            }
+        }
     
     # Download Core Files
     Download-File "Assets/MainWindow.xaml" "$InstallPath\Assets\MainWindow.xaml"
