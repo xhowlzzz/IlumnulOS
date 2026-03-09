@@ -104,6 +104,15 @@ function Remove-WindowsAI {
     # =========================================================================
     Log "--- Phase 3: Package Removal ---"
     
+    # Ensure Appx module is available
+    if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
+        Log "Warning: Get-AppxPackage not found. Attempting to load Appx module..."
+        Import-Module Appx -Force -ErrorAction SilentlyContinue
+        if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
+            Log "CRITICAL: Appx module failed to load. Package removal will be skipped."
+        }
+    }
+
     $aiPackages = @(
         "*Microsoft.Windows.Ai.Copilot.Provider*",
         "*Microsoft.Windows.Recall*",
