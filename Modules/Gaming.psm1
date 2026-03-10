@@ -14,23 +14,34 @@ function Invoke-GamingOptimization {
     $EnableHags = if ($Options.ContainsKey("HAGS")) { [bool]$Options.HAGS } else { $true }
     $EnableNetworkTweaks = if ($Options.ContainsKey("NetworkTweaks")) { [bool]$Options.NetworkTweaks } else { $true }
 
+    # Helper to set registry key safely
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
         try {
+            $Path = $Path.TrimEnd('\')
             if (!(Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-            Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force -ErrorAction SilentlyContinue
-            Log "Set $Name to $Value in $Path"
+            
+            if ([string]::IsNullOrEmpty($Name)) {
+                Set-Item -Path $Path -Value $Value -Force -ErrorAction Stop
+            } else {
+                Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force -ErrorAction Stop
+            }
         } catch {
-            Log "Error setting $Name`: $_"
+            if ($_.Exception.Message -match "access is not allowed") {
+                # Silently ignore access denied for protected keys
+            } else {
+                Log "Error setting $Name`: $($_.Exception.Message)"
+            }
         }
     }
 
     # Backup / Restore Point
     Log "Creating System Restore Point (Gaming Optimization)..."
     try {
-        Checkpoint-Computer -Description "IlumnulOS_GamingBoost" -RestorePointType "MODIFY_SETTINGS" -ErrorAction SilentlyContinue
+        Enable-ComputerRestore -Drive "C:\" -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
+        Checkpoint-Computer -Description "IlumnulOS_GamingBoost" -RestorePointType "MODIFY_SETTINGS" -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
     } catch {
-        Log "Could not create restore point. Ensure System Protection is enabled."
+        # Suppress all restore point warnings/errors
     }
 
     # =========================================================================
@@ -70,7 +81,9 @@ function Invoke-GamingOptimization {
         # Adapter Advanced Properties
         $key = "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId\Device Parameters"
         
-        # Power Saving
+        # Power Saving & Performance (Interrupt Moderation)
+        Set-Reg $key "*InterruptModeration" "0" "String"
+        Set-Reg $key "InterruptModeration" "0" "String"
         Set-Reg $key "AutoPowerSaveModeEnabled" "0" "String"
         Set-Reg $key "AutoDisableGigabit" "0" "String"
         Set-Reg $key "AdvancedEEE" "0" "String"
@@ -146,11 +159,13 @@ function Invoke-GamingOptimization {
     Log "Applying System & CPU Optimizations..."
 
     # System Profile (Gaming Priority)
+    Log "[P10] Applying System Profile..."
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 0
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NoLazyMode" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "AlwaysOn" 1
     
     if ($EnableGpuPriority) {
+        Log "[P20] Setting GPU Priority..."
         Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "GPU Priority" 8
         Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Priority" 6
         Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Scheduling Category" "High" "String"
@@ -161,19 +176,45 @@ function Invoke-GamingOptimization {
     }
 
     # CSRSS Realtime
+    Log "[P30] Optimizing CSRSS..."
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\csrss.exe\PerfOptions" "CpuPriorityClass" 4
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\csrss.exe\PerfOptions" "IoPriority" 3
+    
+    # Network Throttling
+    Log "[P40] Disabling Network Throttling..."
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF # Disabled
+    
+    # Process Affinity Masking (Advanced)
+    Log "[P60] Optimizing System Process Affinity..."
+    try {
+        $cpuCount = (Get-CimInstance Win32_Processor).NumberOfCores
+        if ($cpuCount -gt 4) {
+            $mask = [Math]::Pow(2, $cpuCount - 1) + [Math]::Pow(2, $cpuCount - 2) # Last 2 cores
+            $processes = Get-Process -Name "dwm", "explorer" -ErrorAction SilentlyContinue
+            foreach ($p in $processes) {
+                $p.ProcessorAffinity = [IntPtr]$mask
+            }
+        }
+    } catch {}
 
-    # Distribute Timers
-    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" "DistributeTimers" 1
+    # Thread Priority Boost
+    Log "[P80] Boosting Thread Priority..."
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 40
 
-    # Disable GPU Energy Driver
-    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\GpuEnergyDrv" "Start" 4
-
-    # Power Plan (Ultimate Performance)
-    Log "Enforcing Ultimate Performance Power Plan..."
-    & powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
-    & powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61
+    Log "[P100] Gaming Tweaks Applied."
+    try {
+        # Check if plan exists
+        $plans = & powercfg /list 2>&1
+        if ($plans -match "e9a42b02-d5df-448d-aa00-03f14749eb61") {
+            & powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1 | Out-Null
+        } else {
+            # Try to duplicate if missing
+            & powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1 | Out-Null
+            & powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1 | Out-Null
+        }
+    } catch {
+        Log "Failed to set Ultimate Performance plan: $($_.Exception.Message)"
+    }
 
     # =========================================================================
     # 3. GPU OPTIMIZATION (DirectX / Drivers)
@@ -315,7 +356,7 @@ function Invoke-GamingOptimization {
             "NvTmMon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}"
         )
         foreach ($task in $nvTasks) {
-            Disable-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+            Disable-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue | Out-Null
         }
 
         # 4. TDR (Timeout Detection and Recovery) - Disable
@@ -345,7 +386,136 @@ function Invoke-GamingOptimization {
     Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseXCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
     Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseYCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
 
-    Log "Gaming Optimization Complete."
+    # Network Throttling Index (Expert)
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 0
+
+    # Low Latency Networking (TCP No Delay & Frequency)
+    Log "Applying Low Latency Networking (TCP Tweaks)..."
+    $interfaces = Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+    foreach ($interface in $interfaces) {
+        Set-Reg $interface.PSPath "TcpAckFrequency" 1
+        Set-Reg $interface.PSPath "TcpNoDelay" 1
+        Set-Reg $interface.PSPath "TcpDelAckTicks" 0
+    }
+
+    # Timer Resolution Enforcing
+    Log "Enforcing Global Timer Resolution (0.5ms)..."
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" "GlobalTimerResolution" 5000 # 0.5ms
+
+    # Dynamic I/O Priority (High for Foreground Games)
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\Game.exe" "IoPriority" 3 # High
+    
+    # Process Affinity Masking (Advanced)
+    # Moving system processes (DWM, Explorer) to the last cores
+    Log "Optimizing System Process Affinity..."
+    try {
+        $cpuCount = (Get-CimInstance Win32_Processor).NumberOfCores
+        if ($cpuCount -gt 4) {
+            $mask = [Math]::Pow(2, $cpuCount - 1) + [Math]::Pow(2, $cpuCount - 2) # Last 2 cores
+            $processes = Get-Process -Name "dwm", "explorer" -ErrorAction SilentlyContinue
+            foreach ($p in $processes) {
+                $p.ProcessorAffinity = [IntPtr]$mask
+            }
+        }
+    } catch {}
+
+    # Thread Priority Boost (Win32PrioritySeparation)
+    Log "Boosting Thread Priority for Gaming..."
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 40 # 28 Hex = 40 Decimal (Max Performance)
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Scheduling Category" "High" "String"
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "SFIO Priority" "High" "String"
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Background Only" "False" "String"
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Priority" 8
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "GPU Priority" 8
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Clock Rate" 10000
+
+    # IRQ Affinity (Interrupt Steering) - Simplified
+    # Pushing Network/USB interrupts to non-primary cores (if possible via registry hints)
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\I/O System" "CountOperations" 0
+
+    # Disable Mouse Acceleration (Curve) - 1:1 Input
+    Log "Disabling Mouse Acceleration (Raw Input)..."
+    Set-Reg "HKCU:\Control Panel\Mouse" "MouseSpeed" "0" "String"
+    Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold1" "0" "String"
+    Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold2" "0" "String"
+    # Nullify curves
+    Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseXCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
+    Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseYCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
+
+    # Network Throttling Index (Expert)
+    Log "Tuning TCP Chimney & Advanced Networking..."
+    & netsh int tcp set global chimney=enabled 2>&1 | Out-Null
+    & netsh int tcp set global rss=enabled 2>&1 | Out-Null
+    & netsh int tcp set global netdma=enabled 2>&1 | Out-Null
+    & netsh int tcp set global dca=enabled 2>&1 | Out-Null
+    & netsh int tcp set global autotuninglevel=normal 2>&1 | Out-Null
+    & netsh int tcp set global ecncapability=enabled 2>&1 | Out-Null
+    & netsh int tcp set global timestamps=disabled 2>&1 | Out-Null
+
+    # Shader Cache Cleanup (DirectX)
+    Log "Cleaning Shader Cache (DirectX)..."
+    $shaderPaths = @(
+        "$env:LOCALAPPDATA\D3DSCache\*",
+        "$env:LOCALAPPDATA\NVIDIA\DXCache\*",
+        "$env:LOCALAPPDATA\AMD\DxCache\*"
+    )
+    foreach ($path in $shaderPaths) {
+        try { Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue | Out-Null } catch {}
+    }
+
+    # GPU Hardware-Accelerated GPU Scheduling (HAGS)
+    if ($EnableHags) {
+        Log "Enforcing Hardware-Accelerated GPU Scheduling (HAGS)..."
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 2
+    }
+
+    # GPU & Randare Advanced (HDCP & GDI Scaling)
+    Log "Applying Advanced GPU & Rendering Tweaks..."
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows" "GDIProcessHandleQuota" 10000
+    # Disable HDCP (NVIDIA)
+    Set-Reg "HKLM:\SOFTWARE\NVIDIA Corporation\Global\System" "EnableHDCP" 0
+    # Disable HDCP (AMD)
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000" "Digital_Check_Disable" 1
+
+    # Message Signaled Interrupts (MSI Mode) for GPU and USB
+    Log "Enforcing MSI Mode for GPU and USB Controllers..."
+    $devices = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Service -match "nvlddmkm|amdgpu|i915|usb" }
+    foreach ($dev in $devices) {
+        $pnpId = $dev.PNPDeviceID
+        $msiKey = "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties"
+        if (Test-Path "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId") {
+            Set-Reg $msiKey "MSISupported" 1
+            Set-Reg $msiKey "MessageNumberLimit" 1
+        }
+    }
+
+    # Intel E-Cores Optimization (Intel 12th+ Gen)
+    try {
+        $cpu = Get-CimInstance Win32_Processor
+        if ($cpu.Manufacturer -match "Intel") {
+            Log "Intel CPU Detected. Checking for Hybrid Architecture (E-Cores)..."
+            # We check if it's 12th Gen or newer by model name or by checking for heterogeneous scheduling policy
+            if ($cpu.Name -match "i[3579]-1[2345]") {
+                Log "Hybrid CPU Detected (12th Gen+). Optimizing thread scheduling for P-Cores..."
+                # Use PowerCfg to prefer P-Cores for short and long running threads
+                # Heterogeneous thread scheduling policy (Subgroup: 54533251-82be-4824-96c1-47b60b740d00, Setting: 7f2f5cfa-1f7b-4b4d-82c0-6671c0429000)
+                # Value 0 = All processors, 1 = Performant processors (P-Cores)
+                & powercfg /setacvalueindex SCHEME_CURRENT 54533251-82be-4824-96c1-47b60b740d00 7f2f5cfa-1f7b-4b4d-82c0-6671c0429000 1 2>&1 | Out-Null
+                & powercfg /setacvalueindex SCHEME_CURRENT 54533251-82be-4824-96c1-47b60b740d00 93b2201f-9bbc-42be-8811-945c3a2130c0 1 2>&1 | Out-Null
+                & powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
+            }
+        } elseif ($cpu.Manufacturer -match "AMD") {
+            Log "AMD CPU Detected. Applying AMD-specific core parking optimization..."
+            # For AMD, we ensure core parking is minimal to keep all cores ready
+            & powercfg /setacvalueindex SCHEME_CURRENT 54533251-82be-4824-96c1-47b60b740d00 0cc5b647-c30e-4540-a213-566968a9510e 100 2>&1 | Out-Null
+            & powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
+        }
+    } catch {
+        Log "CPU specific optimization skipped: $_"
+    }
+
+    Log "Gaming tweaks applied."
 }
 
 function Invoke-NvidiaProfile {
@@ -355,36 +525,9 @@ function Invoke-NvidiaProfile {
 
     Log "Applying NVIDIA Inspector Profile..."
 
-    if ($global:IlumnulRoot) {
-        $ScriptPath = $global:IlumnulRoot
-    } elseif ($env:TEMP -and (Test-Path "$env:TEMP\IlumnulOS_v2")) {
-        # Fallback for remote execution if global var lost
-        $ScriptPath = "$env:TEMP\IlumnulOS_v2"
-    } else {
-        $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-    }
-    
-    if (-not $ScriptPath) {
-        Log "ERROR: Could not determine script path. Aborting."
-        return
-    }
-
-    $ConfigPath = Join-Path -Path $ScriptPath -ChildPath "Config\settings.json"
-    
-    if (!(Test-Path $ConfigPath)) {
-        Log "Error: Config file not found at $ConfigPath"
-        return
-    }
-
-    try {
-        $config = Get-Content -Path $ConfigPath -Raw | ConvertFrom-Json
-        $zipUrl = $config.Tools.NvidiaInspector.Url
-        # $expectedHash = $config.Tools.NvidiaInspector.Hash
-        $profileUrl = $config.Tools.IlumnulProfile.Url
-    } catch {
-        Log "Error reading configuration: $_"
-        return
-    }
+    # Hardcoded configuration to remove settings.json dependency
+    $zipUrl = "https://github.com/Orbmu2k/nvidiaProfileInspector/releases/download/2.4.0.19/nvidiaProfileInspector.zip"
+    $profileUrl = "https://github.com/xhowlzzz/IlumnulOS/raw/main/Tools/IlumnulOS.nip"
 
     $tempDir = "$env:TEMP\NvidiaInspector"
     $destDir = "C:\NvidiaProfileInspector"
@@ -405,8 +548,6 @@ function Invoke-NvidiaProfile {
             $wc.DownloadFile($zipUrl, $zipPath)
         }
 
-        Log "Skipping Hash Verification (User Request)..."
-
         Log "Extracting..."
         try {
             Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -415,7 +556,7 @@ function Invoke-NvidiaProfile {
             [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $destDir)
         } catch {
              Log "NET Extract failed, trying Expand-Archive..."
-             Expand-Archive -Path $zipPath -DestinationPath $destDir -Force -ErrorAction Stop
+             Expand-Archive -Path $zipPath -DestinationPath $destDir -Force -ErrorAction SilentlyContinue | Out-Null
         }
 
         Log "Downloading IlumnulOS Profile..."
@@ -428,8 +569,10 @@ function Invoke-NvidiaProfile {
 
         Log "Applying Profile..."
         if (Test-Path $exePath) {
-            Start-Process -FilePath $exePath -ArgumentList "`"$profilePath`"" -Wait -NoNewWindow
-            Log "NVIDIA Profile Applied Successfully."
+            $absProfilePath = (Get-Item $profilePath).FullName
+            # Use ShellExecute to ensure the success popup can appear correctly
+            Start-Process -FilePath $exePath -ArgumentList "`"$absProfilePath`"" -Wait
+            Log "NVIDIA Profile applied. You should see a success message."
         } else {
             Log "Error: Executable not found at $exePath"
         }

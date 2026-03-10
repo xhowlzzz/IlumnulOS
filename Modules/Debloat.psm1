@@ -7,6 +7,13 @@ function Remove-Bloatware {
     
     function Log($msg) { if ($Logger) { $Logger.Invoke($msg) } else { Write-Host $msg } }
 
+    # Ensure HKCR drive exists
+    if (!(Get-PSDrive -Name HKCR -ErrorAction SilentlyContinue)) {
+        try {
+            New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT -ErrorAction SilentlyContinue | Out-Null
+        } catch {}
+    }
+
     Log "Starting Privacy & Debloat tweaks..."
     $EnableRemoveAppx = if ($Options.ContainsKey("RemoveAppx")) { [bool]$Options.RemoveAppx } else { $true }
     $EnableRemoveOneDrive = if ($Options.ContainsKey("RemoveOneDrive")) { [bool]$Options.RemoveOneDrive } else { $true }
@@ -31,11 +38,21 @@ function Remove-Bloatware {
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
         try {
+            $Path = $Path.TrimEnd('\')
             if (!(Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-            Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force -ErrorAction SilentlyContinue
-            Log "Set $Name to $Value in $Path"
+            
+            if ([string]::IsNullOrEmpty($Name)) {
+                # Set (Default) value
+                Set-Item -Path $Path -Value $Value -Force -ErrorAction Stop
+            } else {
+                Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force -ErrorAction Stop
+            }
         } catch {
-            Log "Error setting $Name`: $_"
+            if ($_.Exception.Message -match "access is not allowed") {
+                # Silently ignore access denied for protected keys
+            } else {
+                Log "Error setting $Name`: $($_.Exception.Message)"
+            }
         }
     }
 
@@ -159,8 +176,8 @@ function Remove-Bloatware {
     Log "Disabling Diagnostic & Reporting Services..."
     foreach ($svc in @("diagtrack", "wermgr")) {
         if (Get-Service $svc -ErrorAction SilentlyContinue) {
-            Set-Service -Name $svc -StartupType Disabled
-            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+            Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue | Out-Null
+            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
         }
     }
 
@@ -174,11 +191,21 @@ function Remove-Bloatware {
     # Remove Xbox Gaming Overlay
     Log "Removing Xbox Gaming Overlay..."
     try {
-        winget uninstall 9nzkpstsnw4p --silent --accept-source-agreements
-        Get-AppxPackage Microsoft.XboxGamingOverlay | Remove-AppxPackage -ErrorAction Stop
-        Log "Successfully removed Xbox Gaming Overlay"
+        # Check if winget is available
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            & winget uninstall 9nzkpstsnw4p --silent --accept-source-agreements | Out-Null
+        }
+        
+        # Fallback to Appx
+        $xboxOverlay = Get-AppxPackage -Name Microsoft.XboxGamingOverlay -ErrorAction SilentlyContinue
+        if ($xboxOverlay) {
+            $xboxOverlay | Remove-AppxPackage -ErrorAction Stop
+            Log "Successfully removed Xbox Gaming Overlay"
+        } else {
+            Log "Xbox Overlay not found (already uninstalled)."
+        }
     } catch {
-        Log "Xbox Overlay removal encountered an issue (it may already be gone)."
+        Log "Xbox Overlay removal skipped: $($_.Exception.Message)"
     }
 
     # Disable Windows Consumer Features
@@ -618,9 +645,9 @@ function Remove-Bloatware {
     # Disable Home Page in Settings
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "SettingsPageVisibility" "hide:home;" "String"
 
-    # Show all taskbar icons
-    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" "EnableAutoTray" 0
-    Set-Reg "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify" "SystemTrayChevronVisibility" 0
+    # Show hidden icon menu arrow (EnableAutoTray=1 hides inactive icons into the menu)
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" "EnableAutoTray" 1
+    Set-Reg "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify" "SystemTrayChevronVisibility" 1
 
     # Disable Track my Device
     Set-Reg "HKLM:\SOFTWARE\Microsoft\MdmCommon\SettingValues" "LocationSyncEnabled" 0
@@ -758,7 +785,7 @@ function Remove-Bloatware {
     }
 
     # Disable Windows Error Reporting
-    Log "Disabling Windows Error Reporting..."
+    Log "Disabling Windows Crash Reporting..."
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting" "Disabled" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting" "DoReport" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting" "LoggingDisabled" 1
@@ -804,21 +831,67 @@ function Remove-Bloatware {
         "\Microsoft\Windows\Device Information\Device"
     )
     foreach ($task in $tasks) {
-        Disable-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+        Disable-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue | Out-Null
     }
 
     # Disable Telemetry (Registry)
     Log "Disabling Telemetry Registry Keys..."
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Metadata" "PreventDeviceMetadataFromNetwork" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" "AllowTelemetry" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\InputPersonalization" "RestrictImplicitInkCollection" 1
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\InputPersonalization" "RestrictImplicitTextCollection" 1
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Sensor\Permissions\{BFA794E4-F964-4FDB-90F6-51056BFE4B44}" "SensorPermissionState" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Sensor\Overrides\{BFA794E4-F964-4FDB-90F6-51056BFE4B44}" "SensorPermissionState" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF" "LogEnable" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF" "LogLevel" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "DoNotShowFeedbackNotifications" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowCommercialDataPipeline" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowDeviceNameInTelemetry" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "LimitEnhancedDiagnosticDataWindowsAnalytics" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "MicrosoftEdgeDataOptIn" 0
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Siuf\Rules" "NumberOfSIUFInPeriod" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\Siuf\Rules" "PeriodInNanoSeconds" 0
+    Set-Reg "HKCU:\SOFTWARE\Policies\Microsoft\Assistance\Client\1.0" "NoExplicitFeedback" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Assistance\Client\1.0" "NoActiveHelp" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat" "DisableInventory" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat" "AITEnable" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\SQMClient\Windows" "CEIPEnable" 0
-    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo" "DisabledByGroupPolicy" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat" "DisableUAR" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC" "PreventHandwritingDataSharing" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC" "DoSvc" 3
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocation" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocationScripting" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableSensors" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableWindowsLocationProvider" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\DeviceHealthAttestationService" "DisableSendGenericDriverNotFoundToWER" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceInstall\Settings" "DisableSendGenericDriverNotFoundToWER" 1
+    Set-Reg "HKLM:\SYSTEM\DriverDatabase\Policies\Settings" "DisableSendGenericDriverNotFoundToWER" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "PublishUserActivities" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "EnableActivityFeed" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "UploadUserActivities" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows" "CEIPEnable" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\SQMClient\Reliability" "CEIPEnable" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\SQMClient\Reliability" "SqmLoggerRunning" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\SQMClient\Windows" "CEIPEnable" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\SQMClient\Windows" "DisableOptinExperience" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\SQMClient\Windows" "SqmLoggerRunning" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\SQMClient\IE" "SqmLoggerRunning" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports" "PreventHandwritingErrorReports" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\FileHistory" "Disabled" 1
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\MediaPlayer\Preferences" "UsageTracking" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "NoUseStoreOpenWith" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableSoftLanding" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Peernet" "Disabled" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" "DODownloadMode" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowWiFiHotSpotReporting" "value" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\InputPersonalization\TrainedDataStore" "HarvestContacts" 0
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo" "DisabledByGroupPolicy" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\MRT" "DontOfferThroughWUAU" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Biometrics" "Enabled" 0
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\dmwappushservice" "Start" 4
+    Set-Reg "HKLM:\SYSTEM\DriverDatabase\Policies\Settings" "DisableSendGenericDriverNotFoundToWER" 1
+    Set-Reg "HKCU:\Control Panel\International\User Profile" "HttpAcceptLanguageOptOut" 1
 
     # Disable AutoLoggers
     Log "Disabling AutoLoggers..."
@@ -845,77 +918,156 @@ function Remove-Bloatware {
     Log "Disabling Telemetry Services..."
     $services = @("DiagTrack", "dmwappushservice", "diagnosticshub.standardcollector.service")
     foreach ($svc in $services) {
-        Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-        Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+        Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
+        Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue | Out-Null
     }
     }
 
+    # Remove OneDrive Aggressively
+    Log "Aggressively Removing OneDrive..."
+    try {
+        Stop-Process -Name OneDrive -Force -ErrorAction SilentlyContinue
+        $oneDrivePaths = @(
+            "$env:SystemRoot\SysWOW64\OneDriveSetup.exe",
+            "$env:SystemRoot\System32\OneDriveSetup.exe"
+        )
+        foreach ($p in $oneDrivePaths) {
+            if (Test-Path $p) { Start-Process $p "/uninstall" -NoNewWindow -Wait }
+        }
+        Remove-Item -Path "$env:USERPROFILE\OneDrive" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\OneDrive" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "$env:ProgramData\Microsoft OneDrive" -Recurse -Force -ErrorAction SilentlyContinue
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive" "DisableFileSyncNGSC" 1
+    } catch {}
+
+    # Remove Microsoft Edge Aggressively (Policies & Services)
+    Log "Aggressively Disabling Microsoft Edge..."
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate" "InstallDefault" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate" "Install{56EB18F8-8008-4784-8B02-0901D2D05090}" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer" "HubsFree" 1
+    
+    # Disable Print Spooler (Deep)
+    Log "Disabling Print Spooler (Deep)..."
+    Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    Set-Service -Name "Spooler" -StartupType Disabled -ErrorAction SilentlyContinue
+    # Also disable related services if they exist
+    $printSvcs = @("PrintNotify", "Fax")
+    foreach ($svc in $printSvcs) {
+        Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+    }
+
+    # Disable Distributed Link Tracking Client
+    Log "Disabling Distributed Link Tracking..."
+    Stop-Service -Name "TrkWks" -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    Set-Service -Name "TrkWks" -StartupType Disabled -ErrorAction SilentlyContinue
+
+    $edgeServices = @("MicrosoftEdgeElevationService", "edgeupdate", "edgeupdatem")
+    foreach ($svc in $edgeServices) {
+        Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+    }
+
+    # Aggressive Telemetry & WER Removal
+    Log "Aggressively Removing Telemetry and Reporting..."
+    $telemetryServices = @("DiagTrack", "dmwappushservice", "WerSvc", "WbioSrvc")
+    foreach ($svc in $telemetryServices) {
+        try {
+            $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
+            if ($service) {
+                Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
+                Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue | Out-Null
+                Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\$svc" "Start" 4
+            }
+        } catch {}
+    }
+    
+    # Clean WER Dumps
+    $werPath = "$env:PROGRAMDATA\Microsoft\Windows\WER"
+    if (Test-Path $werPath) { Remove-Item -Path "$werPath\*" -Recurse -Force -ErrorAction SilentlyContinue }
+
     # Removing Unnecessary Powershell Packages
     if ($EnableRemoveAppx) {
-    Log "Removing Unnecessary Appx Packages..."
-    $bloatPkgs = @(
-        "*3DBuilder*", "*bing*", "*bingfinance*", "*bingsports*", "*BingWeather*", "*CommsPhone*",
-        "*Drawboard PDF*", "*Facebook*", "*Getstarted*", "*Microsoft.Messaging*", "*MicrosoftOfficeHub*",
-        "*Office.OneNote*", "*OneNote*", "*people*", "*SkypeApp*", "*solit*", "*Sway*", "*Twitter*",
-        "*WindowsAlarms*", "*WindowsPhone*", "*WindowsMaps*", "*WindowsFeedbackHub*", "*WindowsSoundRecorder*",
-        "*windowscommunicationsapps*", "*zune*",
-        # User Added
-        "*Clipchamp*", "*DevHome*", "*PowerAutomate*", "*StickyNotes*", "*XboxApp*"
-    )
-    foreach ($pkg in $bloatPkgs) {
-        try {
-            Get-AppxPackage -AllUsers $pkg | Remove-AppxPackage -ErrorAction SilentlyContinue
-            Log "Removed $pkg"
-        } catch {
-            Log "Failed to remove $pkg"
+        Log "Removing Unnecessary Appx Packages..."
+        $bloatPkgs = @(
+            "*3DBuilder*", "*bing*", "*bingfinance*", "*bingsports*", "*BingWeather*", "*CommsPhone*",
+            "*Drawboard PDF*", "*Facebook*", "*Getstarted*", "*Microsoft.Messaging*", "*MicrosoftOfficeHub*",
+            "*Office.OneNote*", "*OneNote*", "*people*", "*SkypeApp*", "*solit*", "*Sway*", "*Twitter*",
+            "*WindowsAlarms*", "*WindowsPhone*", "*WindowsMaps*", "*WindowsFeedbackHub*", "*WindowsSoundRecorder*",
+            "*windowscommunicationsapps*", "*zune*",
+            # User Added
+            "*Clipchamp*", "*DevHome*", "*PowerAutomate*", "*StickyNotes*", "*XboxApp*"
+        )
+        $count = 0
+        foreach ($pkg in $bloatPkgs) {
+            $count++
+            if (Get-Command Write-ProgressBar -ErrorAction SilentlyContinue) {
+                Write-ProgressBar -Current $count -Total $bloatPkgs.Count -Status "Removing $pkg"
+            }
+            try {
+                Get-AppxPackage -AllUsers $pkg | Remove-AppxPackage -ErrorAction SilentlyContinue | Out-Null
+            } catch { }
         }
-    }
     }
 
     # Disable Unnecessary Services (Extensive List)
     if ($EnableDisableServices) {
-    Log "Disabling Unnecessary Services..."
-    $unnecessaryServices = @(
-        "TapiSrv", "FontCache3.0.0.0", "WpcMonSvc", "SEMgrSvc", "PNRPsvc", "LanmanWorkstation",
-        "WEPHOSTSVC", "p2psvc", "p2pimsvc", "PhoneSvc", "wuauserv", "Wecsvc", "SensorDataService",
-        "SensrSvc", "perceptionsimulation", "StiSvc", "OneSyncSvc", "WMPNetworkSvc", "autotimesvc",
-        "edgeupdatem", "MicrosoftEdgeElevationService", "ALG", "QWAVE", "IpxlatCfgSvc", "icssvc",
-        "DusmSvc", "MapsBroker", "edgeupdate", "SensorService", "shpamsvc", "svsvc", "SysMain",
-        "MSiSCSI", "Netlogon", "CscService", "ssh-agent", "AppReadiness", "tzautoupdate", "NfsClnt",
-        "wisvc", "defragsvc", "SharedRealitySvc", "RetailDemo", "lltdsvc", "TrkWks", "CryptSvc",
-        "diagsvc", "DPS", "WdiServiceHost", "WdiSystemHost", "TroubleshootingSvc", "DsSvc",
-        "FrameServer", "FontCache", "InstallService", "OSRSS", "sedsvc", "SENS", "TabletInputService",
-        "Themes", "ConsentUxUserSvc", "DevicePickerUserSvc", "UnistoreSvc", "DevicesFlowUserSvc",
-        "MessagingService", "CDPUserSvc", "PimIndexMaintenanceSvc", "BcastDVRUserService", "UserDataSvc",
-        "DeviceAssociationBrokerSvc", "cbdhsvc", "CaptureService", "lfsvc", "SecurityHealthService",
-        "RemoteRegistry", "Spooler", "WSearch", "MapsBroker", "NetTcpPortSharing", "TrkWks"
-    )
-    foreach ($svc in $unnecessaryServices) {
-        try {
-            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-            Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
-            Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\$svc" "Start" 4
-            Log "Disabled Service: $svc"
-        } catch {
-            Log "Failed to disable service: $svc"
+        Log "Disabling Unnecessary Services..."
+        $unnecessaryServices = @(
+            "TapiSrv", "FontCache3.0.0.0", "WpcMonSvc", "SEMgrSvc", "PNRPsvc", "LanmanWorkstation",
+            "WEPHOSTSVC", "p2psvc", "p2pimsvc", "PhoneSvc", "wuauserv", "Wecsvc", "SensorDataService",
+            "SensrSvc", "perceptionsimulation", "StiSvc", "OneSyncSvc", "WMPNetworkSvc", "autotimesvc",
+            "edgeupdatem", "MicrosoftEdgeElevationService", "ALG", "QWAVE", "IpxlatCfgSvc", "icssvc",
+            "DusmSvc", "MapsBroker", "edgeupdate", "SensorService", "shpamsvc", "svsvc", "SysMain",
+            "MSiSCSI", "Netlogon", "CscService", "ssh-agent", "AppReadiness", "tzautoupdate", "NfsClnt",
+            "wisvc", "defragsvc", "SharedRealitySvc", "RetailDemo", "lltdsvc", "TrkWks", "CryptSvc",
+            "diagsvc", "DPS", "WdiServiceHost", "WdiSystemHost", "TroubleshootingSvc", "DsSvc",
+            "FrameServer", "FontCache", "InstallService", "OSRSS", "sedsvc", "SENS", "TabletInputService",
+            "Themes", "ConsentUxUserSvc", "DevicePickerUserSvc", "UnistoreSvc", "DevicesFlowUserSvc",
+            "MessagingService", "CDPUserSvc", "PimIndexMaintenanceSvc", "BcastDVRUserService", "UserDataSvc",
+            "DeviceAssociationBrokerSvc", "cbdhsvc", "CaptureService", "lfsvc", "SecurityHealthService",
+            "RemoteRegistry", "Spooler", "WSearch", "MapsBroker", "NetTcpPortSharing", "TrkWks",
+            "dmwappushsvc", "diagnosticshub.standardcollector.service"
+        )
+        $count = 0
+        foreach ($svc in $unnecessaryServices) {
+            $count++
+            # Using Write-ProgressBar if available via global scope or similar
+            if (Get-Command Write-ProgressBar -ErrorAction SilentlyContinue) {
+                Write-ProgressBar -Current $count -Total $unnecessaryServices.Count -Status "Disabling $svc"
+            }
+            try {
+                Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
+                Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue | Out-Null
+                Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\$svc" "Start" 4
+            } catch { }
         }
-    }
+        
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftEdge\Main" "AllowPrelaunch" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftEdge\TabPreloader" "AllowTabPreloading" 0
     }
     
     # Edge Removal (Aggressive - Use Caution)
     Log "Removing Microsoft Edge..."
     try {
-        $edgeSetup = Join-Path $env:ProgramFiles(x86) "Microsoft\Edge\Application\*\Installer\setup.exe"
-        $edgeInstaller = Get-Item $edgeSetup -ErrorAction SilentlyContinue | Select-Object -First 1
+        # Fix: Proper syntax for environment variable with parentheses
+        $progFilesX86 = ${env:ProgramFiles(x86)}
+        $edgeSetupPattern = Join-Path $progFilesX86 "Microsoft\Edge\Application\*\Installer\setup.exe"
+        $edgeInstaller = Get-Item $edgeSetupPattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        
         if ($edgeInstaller) {
-            Start-Process -FilePath $edgeInstaller.FullName -ArgumentList "--uninstall --system-level --verbose-logging --force-uninstall" -Wait -NoNewWindow
+            # Fix: Quote file path and handle spaces
+            Start-Process -FilePath "`"$($edgeInstaller.FullName)`"" -ArgumentList "--uninstall --system-level --verbose-logging --force-uninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue
             Log "Edge uninstalled via setup.exe"
         }
         
         # Cleanup Edge User Data
-        Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\Edge" -Recurse -Force -ErrorAction SilentlyContinue
+        $edgeUserData = "$env:LOCALAPPDATA\Microsoft\Edge"
+        if (Test-Path $edgeUserData) {
+            Remove-Item -Path $edgeUserData -Recurse -Force -ErrorAction SilentlyContinue
+        }
     } catch {
-        Log "Edge removal failed or skipped: $_"
+        Log "Edge removal failed or skipped: $($_.Exception.Message)"
     }
 
     # Focus Assist (Alarms Only / Priority)
@@ -1073,10 +1225,13 @@ function Remove-Bloatware {
                     if (-not $json.brave.wallet) { $json.brave | Add-Member -NotePropertyName "wallet" -NotePropertyValue (@{}) -Force }
                     if (-not $json.brave.news) { $json.brave | Add-Member -NotePropertyName "news" -NotePropertyValue (@{}) -Force }
                     if (-not $json.brave.today) { $json.brave | Add-Member -NotePropertyName "today" -NotePropertyValue (@{}) -Force }
-                    $json.brave.ai_chat.enabled = $false
-                    $json.brave.wallet.enabled = $false
-                    $json.brave.news.opted_in = $false
-                    $json.brave.today.opted_in = $false
+                    
+                    # Safely set values (using PSCustomObject property access)
+                    try { $json.brave.ai_chat.enabled = $false } catch {}
+                    try { $json.brave.wallet.enabled = $false } catch {}
+                    try { $json.brave.news.opted_in = $false } catch {}
+                    try { $json.brave.today.opted_in = $false } catch {}
+                    
                     ($json | ConvertTo-Json -Depth 100) | Set-Content -Path $bravePrefPath -Encoding UTF8 -Force
                     Log "Updated Brave preferences at $bravePrefPath"
                 }

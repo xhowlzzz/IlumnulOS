@@ -13,14 +13,24 @@ function Remove-WindowsAI {
         if ($Logger) { $Logger.Invoke($logMsg) } else { Write-Host $logMsg } 
     }
     
+    # Helper to set registry key safely
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
         try {
+            $Path = $Path.TrimEnd('\')
             if (!(Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-            Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force -ErrorAction SilentlyContinue
-            Log "Registry: Set $Name to $Value in $Path"
+            
+            if ([string]::IsNullOrEmpty($Name)) {
+                Set-Item -Path $Path -Value $Value -Force -ErrorAction Stop
+            } else {
+                Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force -ErrorAction Stop
+            }
         } catch {
-            Log "Error setting registry key $Name`: $_"
+            if ($_.Exception.Message -match "access is not allowed") {
+                # Silently ignore access denied for protected keys
+            } else {
+                Log "Error setting registry key $Name`: $($_.Exception.Message)"
+            }
         }
     }
 
@@ -51,6 +61,7 @@ function Remove-WindowsAI {
     if ($DisableRecall) {
         Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "AllowRecallEnablement" 0
         Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "DisableClickToDo" 1
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\StudioEffects" "DisableStudioEffects" 1
     }
     if ($DisableCopilot) {
         Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" 1
@@ -60,6 +71,7 @@ function Remove-WindowsAI {
     if ($DisableCopilot) {
         Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0
         Set-Reg "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" 1
+        Set-Reg "HKCU:\Software\Microsoft\OneDrive" "EnablePhotoTagging" 0
     }
     
     # Edge Copilot
@@ -88,6 +100,9 @@ function Remove-WindowsAI {
 
     # Gaming Copilot
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameBar" "ShowCopilotButton" 0
+    if ($DisableCopilot) {
+        Set-Reg "HKCU:\Software\Microsoft\GameBar" "UseNexusForGameBarEnabled" 0
+    }
     
     # App Privacy (AI Access)
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" "LetAppsAccessSystemAIModels" 2
@@ -106,8 +121,8 @@ function Remove-WindowsAI {
     foreach ($svc in $aiServices) {
         if (Get-Service $svc -ErrorAction SilentlyContinue) {
             try {
-                Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-                Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+                Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 3>$null 2>&1 | Out-Null
+                Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue -WarningAction SilentlyContinue 3>$null 2>&1 | Out-Null
                 Log "Service: Disabled $svc"
             } catch {
                 Log "Service: Failed to disable $svc - $_"
@@ -123,17 +138,17 @@ function Remove-WindowsAI {
     # Ensure Appx and Dism modules are available
     if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
         Log "Warning: Get-AppxPackage not found. Attempting to load Appx module..."
-        Import-Module Appx -ErrorAction SilentlyContinue
+        Import-Module Appx -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
     }
     
     if (-not (Get-Command Get-AppxProvisionedPackage -ErrorAction SilentlyContinue)) {
         Log "Warning: Get-AppxProvisionedPackage not found. Attempting to load Dism module..."
-        Import-Module Dism -ErrorAction SilentlyContinue
+        Import-Module Dism -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
     }
-
+    
     if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
         Log "Warning: Get-ScheduledTask not found. Attempting to load ScheduledTasks module..."
-        Import-Module ScheduledTasks -ErrorAction SilentlyContinue
+        Import-Module ScheduledTasks -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
     }
 
     $aiPackages = @(
@@ -145,16 +160,18 @@ function Remove-WindowsAI {
         $aiPackages += "*Microsoft.Windows.Ai.Copilot.Provider*"
         $aiPackages += "*Microsoft.Copilot*"
         $aiPackages += "*Microsoft.BingChat*"
+        $aiPackages += "*Copilot*"
     }
     if ($DisableRecall) {
         $aiPackages += "*Microsoft.Windows.Recall*"
+        $aiPackages += "*Microsoft.Windows.Photos*"
     }
     
     foreach ($pkg in $aiPackages) {
         try {
             $foundPkg = Get-AppxPackage -AllUsers $pkg -ErrorAction SilentlyContinue
             if ($foundPkg) {
-                $foundPkg | Remove-AppxPackage -AllUsers -ErrorAction Stop
+                $foundPkg | Remove-AppxPackage -AllUsers -ErrorAction Stop 3>$null 2>&1 | Out-Null
                 Log "Package: Removed $pkg"
             }
         } catch {
@@ -167,15 +184,23 @@ function Remove-WindowsAI {
         
         # Provisioned Packages (separate try/catch)
         try {
-            Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pkg } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Out-Null
+            Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pkg } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
+        } catch {}
+    }
+
+    # Additional Photos App Removal (Explicit)
+    if ($DisableRecall) {
+        try {
+            Get-AppxPackage *Microsoft.Windows.Photos* | Remove-AppxPackage -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
         } catch {}
     }
 
     # Optional Features (Recall)
     if ($DisableRecall) {
         try {
-            if (Get-WindowsOptionalFeature -Online -FeatureName "Recall" -ErrorAction SilentlyContinue) {
-                Disable-WindowsOptionalFeature -Online -FeatureName "Recall" -NoRestart -ErrorAction SilentlyContinue
+            $recallFeature = Get-WindowsOptionalFeature -Online -FeatureName "Recall" -ErrorAction SilentlyContinue
+            if ($recallFeature -and $recallFeature.State -eq "Enabled") {
+                Disable-WindowsOptionalFeature -Online -FeatureName "Recall" -NoRestart -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
                 Log "Feature: Disabled Recall Optional Feature"
             }
         } catch {
@@ -226,7 +251,7 @@ function Remove-WindowsAI {
     foreach ($path in $paths) {
         if (Test-Path $path) {
             try {
-                Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
                 Log "FileSystem: Removed $path"
             } catch {
                 Log "FileSystem: Failed to remove $path - $_"
@@ -240,7 +265,7 @@ function Remove-WindowsAI {
     if (Test-Path $policyFile) {
         try {
             # Backup
-            Copy-Item -Path $policyFile -Destination "$policyFile.bak" -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path $policyFile -Destination "$policyFile.bak" -Force -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
             Log "Policy: Backed up IntegratedServicesRegionPolicySet.json"
             
             # We can't easily parse this large JSON safely in a script without potentially breaking it if the schema changes.
@@ -269,7 +294,7 @@ function Remove-WindowsAI {
     }
     foreach ($task in $tasks) {
         try {
-            Unregister-ScheduledTask -TaskName $task.TaskName -Confirm:$false -ErrorAction SilentlyContinue
+            Unregister-ScheduledTask -TaskName $task.TaskName -Confirm:$false -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
             Log "Task: Removed $($task.TaskName)"
         } catch {
             Log "Task: Failed to remove $($task.TaskName) - $_"
