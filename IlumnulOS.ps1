@@ -1,17 +1,15 @@
-# IlumnulOS - Created by Howl
-# Windows 11 Optimization & Debloating Tool - Ultimate Edition
-# Features: Glass/iOS-like UI, Animations, Modern Design, Loading Screen, Custom Terminal (#517755)
+# IlumnulOS CLI - Optimized by Assistant
+# Windows 11 Optimization & Debloating Tool - CLI Edition
 
 # Load required assemblies
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Add-Type -AssemblyName PresentationFramework
-Add-Type -AssemblyName PresentationCore
-Add-Type -AssemblyName WindowsBase
+try {
+    Add-Type -AssemblyName PresentationCore -ErrorAction SilentlyContinue
+    Add-Type -AssemblyName WindowsBase -ErrorAction SilentlyContinue
+} catch {}
 
-# Import Modules
+# Initialize Paths
 $ScriptPath = $PSScriptRoot
-
-# Remote Execution / Missing Path Logic
 if (-not $ScriptPath) {
     if ($MyInvocation.MyCommand.Path) {
         $ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,99 +17,37 @@ if (-not $ScriptPath) {
         $ScriptPath = Get-Location
     }
 }
+# Normalize path
+if ($ScriptPath) { $ScriptPath = $ScriptPath.TrimEnd('\') }
 
-# Bootstrapper: Check if running remotely (missing local modules) and download them
-    if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
-        Write-Host "Remote Execution Detected. Initializing IlumnulOS Bootstrapper..." -ForegroundColor Cyan
-        
-        $InstallPath = "$env:USERPROFILE\Documents\IlumnulOS_v2"
-        $RepoUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
-        
-        # Clean cleanup to ensure fresh files
-        if (Test-Path $InstallPath) {
-            Remove-Item -Path $InstallPath -Recurse -Force -ErrorAction SilentlyContinue
-        }
-
-        # Create Directories
-        New-Item -ItemType Directory -Path "$InstallPath\Modules" -Force | Out-Null
-        New-Item -ItemType Directory -Path "$InstallPath\Assets" -Force | Out-Null
-        New-Item -ItemType Directory -Path "$InstallPath\Config" -Force | Out-Null
-        
-        # Helper to download with retry logic and robust error handling
-        function Download-File {
-            param($RemotePath, $LocalPath)
-            $MaxRetries = 3
-            $RetryDelaySeconds = 2
-            $BaseUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
-            $ApiBaseUrl = "https://api.github.com/repos/xhowlzzz/IlumnulOS/contents"
-            $headers = @{ "User-Agent" = "PowerShell" }
-
-            $parentDir = Split-Path -Parent $LocalPath
-            if (-not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
-
-            $attempt = 0
-            $downloaded = $false
-            $lastError = ""
-
-            while (-not $downloaded -and $attempt -lt $MaxRetries) {
-                $attempt++
-                $timestamp = Get-Date -Format "HH:mm:ss"
-                Write-Host "[$timestamp] Downloading $RemotePath (Attempt $attempt/$MaxRetries)..." -NoNewline
-
-                $cb = Get-Random
-                $candidates = @(
-                    "$BaseUrl/$RemotePath?v=$cb",
-                    "$BaseUrl/$RemotePath",
-                    "$ApiBaseUrl/$RemotePath?ref=main"
-                )
-
-                foreach ($candidate in $candidates) {
-                    try {
-                        if ($candidate -like "https://api.github.com/*") {
-                            $json = Invoke-RestMethod -Uri $candidate -Headers $headers -ErrorAction Stop
-                            if (-not $json.content) { throw "GitHub API response has no content field." }
-                            $bytes = [Convert]::FromBase64String(($json.content -replace "`n",""))
-                            [System.IO.File]::WriteAllBytes($LocalPath, $bytes)
-                        } else {
-                            Invoke-WebRequest -Uri $candidate -OutFile $LocalPath -Headers $headers -ErrorAction Stop
-                        }
-
-                        if (Test-Path $LocalPath) {
-                            $size = (Get-Item $LocalPath).Length
-                            if ($size -gt 0) {
-                                Write-Host " [OK] ($size bytes)" -ForegroundColor Green
-                                $downloaded = $true
-                                break
-                            }
-                        }
-                        throw "Downloaded file is missing or empty."
-                    } catch {
-                        $lastError = "URL: $candidate | Error: $($_.Exception.Message)"
-                    }
-                }
-
-                if (-not $downloaded) {
-                    Write-Host " [FAILED]" -ForegroundColor Red
-                    Write-Host "    $lastError" -ForegroundColor DarkGray
-                    if ($attempt -lt $MaxRetries) {
-                        $sleep = $RetryDelaySeconds * [math]::Pow(2, $attempt - 1)
-                        Write-Host "    Retrying in $sleep seconds..." -ForegroundColor Yellow
-                        Start-Sleep -Seconds $sleep
-                    }
-                }
-            }
-
-            if (-not $downloaded) {
-                Write-Error "CRITICAL: Failed to download $RemotePath after $MaxRetries attempts."
-                return $false
-            }
-            return $true
-        }
+# Bootstrapper: Check if modules exist, if not download them (simplified)
+if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
+    Write-Host "Remote Execution or Missing Modules Detected. Initializing Bootstrapper..." -ForegroundColor Cyan
     
-    # Download Core Files
+    $InstallPath = "$env:USERPROFILE\Documents\IlumnulOS_CLI"
+    $RepoUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
+    
+    if (Test-Path $InstallPath) {
+        Remove-Item -Path $InstallPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    New-Item -ItemType Directory -Path "$InstallPath\Modules" -Force | Out-Null
+    
+    function Download-File {
+        param($RemotePath, $LocalPath)
+        $headers = @{ "User-Agent" = "PowerShell" }
+        $BaseUrl = "https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main"
+        try {
+            Invoke-WebRequest -Uri "$BaseUrl/$RemotePath" -OutFile $LocalPath -Headers $headers -ErrorAction Stop
+            Write-Host " [OK] Downloaded $RemotePath" -ForegroundColor Green
+            return $true
+        } catch {
+            Write-Host " [FAILED] Could not download $RemotePath" -ForegroundColor Red
+            return $false
+        }
+    }
+
     $requiredFiles = @(
-        @{ Remote = "Assets/MainWindow.xaml"; Local = "$InstallPath\Assets\MainWindow.xaml" },
-        @{ Remote = "Config/settings.json"; Local = "$InstallPath\Config\settings.json" },
         @{ Remote = "Modules/Debloat.psm1"; Local = "$InstallPath\Modules\Debloat.psm1" },
         @{ Remote = "Modules/Gaming.psm1"; Local = "$InstallPath\Modules\Gaming.psm1" },
         @{ Remote = "Modules/Optimize.psm1"; Local = "$InstallPath\Modules\Optimize.psm1" },
@@ -120,752 +56,562 @@ if (-not $ScriptPath) {
 
     $hasFailure = $false
     foreach ($file in $requiredFiles) {
-        $ok = Download-File $file.Remote $file.Local
-        if (-not $ok) { $hasFailure = $true }
+        if (-not (Download-File $file.Remote $file.Local)) { $hasFailure = $true }
     }
     if ($hasFailure) {
-        Read-Host "Press Enter to exit..."
+        Read-Host "CRITICAL: Some files failed to download. Press Enter to exit..."
         return
     }
-    
     $ScriptPath = $InstallPath
-    Write-Host "Bootstrapping Complete. Launching..." -ForegroundColor Green
 }
 
-# Ensure modules exist before importing to avoid errors if run independently
+# Import Modules
+Write-Host "Importing modules..." -ForegroundColor Cyan
 if (Test-Path "$ScriptPath\Modules\Debloat.psm1") { Import-Module "$ScriptPath\Modules\Debloat.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\Optimize.psm1") { Import-Module "$ScriptPath\Modules\Optimize.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\Gaming.psm1") { Import-Module "$ScriptPath\Modules\Gaming.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\RemoveAI.psm1") { Import-Module "$ScriptPath\Modules\RemoveAI.psm1" -Force }
 
-# -----------------------------------------------------------------------------
-# Initialize UI Elements & Events
-# -----------------------------------------------------------------------------
+# Audio Helper (MCI API for maximum reliability)
+$mciSource = @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
 
-# Load XAML from file
-$XamlPath = Join-Path -Path $ScriptPath -ChildPath "Assets\MainWindow.xaml"
-if (!(Test-Path $XamlPath)) {
-    Write-Error "CRITICAL ERROR: MainWindow.xaml not found at $XamlPath"
-    Read-Host "Press Enter to exit..."
-    return
+public class AudioPlayer {
+    [DllImport("winmm.dll")]
+    private static extern long mciSendString(string command, StringBuilder returnValue, int returnLength, IntPtr winHandle);
+
+    public static void Play(string fileName) {
+        mciSendString("close myDevice", null, 0, IntPtr.Zero);
+        mciSendString("open \"" + fileName + "\" type mpegvideo alias myDevice", null, 0, IntPtr.Zero);
+        mciSendString("setaudio myDevice volume to 100", null, 0, IntPtr.Zero); // 100 out of 1000 is 10%
+        mciSendString("play myDevice repeat", null, 0, IntPtr.Zero);
+    }
+
+    public static void Stop() {
+        mciSendString("stop myDevice", null, 0, IntPtr.Zero);
+        mciSendString("close myDevice", null, 0, IntPtr.Zero);
+    }
 }
-
+"@
 try {
-    $xamlContent = Get-Content -Path $XamlPath -Raw
-    # Update dynamic content (username) before parsing
-    $xamlContent = $xamlContent.Replace("Welcome back, User", "Welcome back, $env:USERNAME")
-    
-    $sr = New-Object System.IO.StringReader($xamlContent)
-    $reader = [System.Xml.XmlReader]::Create($sr)
-    $window = [Windows.Markup.XamlReader]::Load($reader)
-    $sr.Close()
-} catch {
-    Write-Error "CRITICAL ERROR: Failed to load XAML. $_"
-    Read-Host "Press Enter to exit..."
-    return
+    Add-Type -TypeDefinition $mciSource -ErrorAction SilentlyContinue
+} catch {}
+
+function Start-Music {
+    param([string]$FilePath)
+    if (Test-Path $FilePath) {
+        $absPath = (Get-Item $FilePath).FullName
+        [AudioPlayer]::Play($absPath)
+    }
 }
 
-# -----------------------------------------------------------------------------
-# Async Execution Helper
-# -----------------------------------------------------------------------------
-function Start-AsyncOperation {
-    param(
-        [ScriptBlock]$ScriptBlock,
-        [string]$SuccessMessage = "Operation Completed.",
-        [switch]$ShowTerminal = $true,
-        [hashtable]$OperationOptions = @{}
+function Stop-Music {
+    [AudioPlayer]::Stop()
+}
+
+# CLI Color & UI Helpers
+function Get-GradientText {
+    param([string]$Text, [int]$R1, [int]$G1, [int]$B1, [int]$R2, [int]$G2, [int]$B2)
+    $len = $Text.Length
+    if ($len -le 1) { return $Text }
+    $result = ""
+    for ($i = 0; $i -lt $len; $i++) {
+        $r = [int]($R1 + ($R2 - $R1) * ($i / ($len - 1)))
+        $g = [int]($G1 + ($G2 - $G1) * ($i / ($len - 1)))
+        $b = [int]($B1 + ($B2 - $B1) * ($i / ($len - 1)))
+        $result += "$([char]27)[38;2;$r;$g;${b}m$($Text[$i])"
+    }
+    return "$result$([char]27)[0m"
+}
+
+function Write-Spinner {
+    param([string]$Message)
+    $frames = @("⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏")
+    $esc = [char]27
+    $cyan = "$esc[36m"
+    $reset = "$esc[0m"
+    for ($i = 0; $i -lt 10; $i++) {
+        Write-Host "`r$cyan$($frames[$i % 10])$reset $Message" -NoNewline
+        Start-Sleep -Milliseconds 50
+    }
+    Write-Host "`r   $Message" -NoNewline # Clean up
+}
+
+function Get-HardwareInfo {
+    try {
+        $cpu = (Get-CimInstance Win32_Processor).Name.Trim()
+        $gpu = (Get-CimInstance Win32_VideoController | Select-Object -First 1).Name.Trim()
+        $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 0)
+        return @{ CPU = $cpu; GPU = $gpu; RAM = "$ram GB" }
+    } catch {
+        return @{ CPU = "Unknown"; GPU = "Unknown"; RAM = "Unknown" }
+    }
+}
+
+function Write-Typewriter {
+    param([string]$Text, [int]$Delay = 10, [string]$Color = "White")
+    $chars = $Text.ToCharArray()
+    foreach ($c in $chars) {
+        Write-Host $c -NoNewline -ForegroundColor $Color
+        Start-Sleep -Milliseconds $Delay
+    }
+    Write-Host ""
+}
+
+# CLI Logger Helper (Updated with Icons)
+$cliLogger = [Action[string]] { 
+    param($msg) 
+    $timestamp = Get-Date -Format "HH:mm:ss"
+    $esc = [char]27
+    $bold = "$esc[1m"
+    $reset = "$esc[0m"
+    
+    # Status Icons
+    $iconOk = "$([char]0x2714)"      # Checkmark
+    $iconFail = "$([char]0x2718)"    # X
+    $iconWarn = "$([char]0x26A0)"    # Warning Triangle
+    $iconSkull = "$([char]0x2620)"   # Skull
+    
+    if ($msg -match 'Error' -or $msg -match 'FAILED') {
+        Write-Host "[$timestamp] $bold$([char]0x2503)$reset " -NoNewline -ForegroundColor Gray; Write-Host "$iconFail $msg" -ForegroundColor Red
+    } elseif ($msg -match 'Success' -or $msg -match 'OK' -or $msg -match 'Finished' -or $msg -match 'completed successfully') {
+        Write-Host "[$timestamp] $bold$([char]0x2503)$reset " -NoNewline -ForegroundColor Gray; Write-Host "$iconOk $msg" -ForegroundColor Green
+    } elseif ($msg -match 'Warning' -or $msg -match 'skipped') {
+        Write-Host "[$timestamp] $bold$([char]0x2503)$reset " -NoNewline -ForegroundColor Gray; Write-Host "$iconWarn $msg" -ForegroundColor Yellow
+    } elseif ($msg -match 'Removing' -or $msg -match 'Disabling' -or $msg -match 'Purging') {
+        Write-Host "[$timestamp] $bold$([char]0x2503)$reset " -NoNewline -ForegroundColor Gray; Write-Host "$iconSkull $msg" -ForegroundColor Magenta
+    } elseif ($msg -match '^\[\d/\d\]') {
+        # Section Headers
+        $headerText = " $msg "
+        $borderLine = ([string][char]0x2550) * ($headerText.Length)
+        Write-Host ""
+        Write-Host ("$bold$([char]0x2554)$borderLine$([char]0x2557)") -ForegroundColor Cyan
+        Write-Host ("$([char]0x2551)$headerText$([char]0x2551)") -ForegroundColor Cyan
+        Write-Host ("$([char]0x255A)$borderLine$([char]0x255D)$reset") -ForegroundColor Cyan
+    } else {
+        Write-Host "[$timestamp] $bold$([char]0x2503)$reset " -NoNewline -ForegroundColor Gray; Write-Host "$msg" -ForegroundColor White
+    }
+}
+
+function Write-ProgressBar {
+    param([int]$Current, [int]$Total, [string]$Status = "")
+    $width = 40
+    $percent = [int]($Current / $Total * 100)
+    $filled = [int]($Current / $Total * $width)
+    $empty = $width - $filled
+    
+    # Dynamic Color based on percent
+    $color = "Red"
+    if ($percent -ge 50) { $color = "Yellow" }
+    if ($percent -ge 90) { $color = "Green" }
+    
+    $bar = ([string][char]0x2588 * $filled) + ([string][char]0x2591 * $empty)
+    $timestamp = Get-Date -Format "HH:mm:ss"
+    Write-Host "`r[$timestamp] [$bar] $percent% $Status" -NoNewline -ForegroundColor $color
+    if ($Current -eq $Total) { Write-Host "" }
+}
+
+function Write-HwLine {
+    param($Label, $Value)
+    $Width = 52
+    $esc = [char]27
+    $gray = "$esc[90m"
+    $cyan = "$esc[36m"
+    $reset = "$esc[0m"
+    $boxMid = "$([char]0x2551)"
+    
+    $fullText = "$Label : $Value"
+    if ($fullText.Length -gt $Width) { 
+        # Truncate value if too long
+        $maxValLen = $Width - $Label.Length - 3
+        if ($maxValLen -gt 0) {
+            $Value = $Value.Substring(0, $maxValLen)
+            $fullText = "$Label : $Value"
+        }
+    }
+    
+    $pad = $Width - $fullText.Length
+    if ($pad -lt 0) { $pad = 0 }
+    $l = [math]::Floor($pad / 2)
+    $r = $pad - $l
+    
+    Write-Host "  $gray$boxMid$reset" -NoNewline
+    Write-Host (" " * $l) -NoNewline
+    Write-Host "$cyan$Label :$reset $Value" -NoNewline
+    Write-Host (" " * $r) -NoNewline
+    Write-Host "$gray$boxMid$reset"
+}
+
+function Show-Header {
+    Clear-Host
+    $esc = [char]27
+    $bold = "$esc[1m"
+    $reset = "$esc[0m"
+
+    # Gradient ASCII Art
+    $lines = @(
+        "    __  __                          __ ____  _____",
+        "   / / / /_  ______ ___  ____  __  __/ / __ \/ ___/",
+        "  / / / / / / / __ `__ \/ __ \/ / / / / / / /\__ \ ",
+        " / /_/ / /_/ / / / / / / / / / /_/ / / /_/ /___/ / ",
+        " \____/\__,_/_/ /_/ /_/_/ /_/\__,_/_/\____//____/  "
     )
-
-    if ($ShowTerminal) {
-        Switch-View "Terminal"
-        $window.FindName("navTerminal").IsChecked = $true
+    foreach ($line in $lines) {
+        Write-Host (Get-GradientText $line 150 0 255 0 255 255)
     }
-
-    if ($script:OperationInProgress) {
-        if (Get-Command Log-Message -ErrorAction SilentlyContinue) {
-            Log-Message "Another operation is already running."
-        }
-        return
-    }
-
-    # Create a synchronized hashtable for thread-safe logging
-    $syncHash = [Hashtable]::Synchronized(@{})
-    $syncHash.Window = $window
-    $syncHash.OutputBox = $window.FindName("txtTerminalOutput")
-    $syncHash.StatusBox = $window.FindName("txtStatus")
-
-    # Define the logger scriptblock (Not used in async, but defined for reference or fallback)
-    $loggerBlock = {
-        param($msg)
-        # Empty placeholder as we use internal log function in runspace
-    }
-
-    # Create the runspace
-    # In 'irm | iex' scenarios, default session states are often broken.
-    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-    $iss.LanguageMode = [System.Management.Automation.PSLanguageMode]::FullLanguage
     
-    # Pre-load critical system modules into the InitialSessionState
-    # This is more reliable than Import-Module inside the scriptblock for restricted contexts
-    $sysModPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
-    $criticalModules = @("Appx", "ScheduledTasks", "Dism", "Storage", "NetAdapter", "DnsClient", "Defender", "NetSecurity", "MMAgent", "Microsoft.PowerShell.Archive")
+    $subtitle = "          Windows 11 Ultimate Optimization Tool"
+    Write-Host (Get-GradientText $subtitle 0 255 255 255 255 255)
     
-    foreach ($mod in $criticalModules) {
-        try {
-            # Try to find the module manifest directly
-            $manifestPath = Join-Path $sysModPath "$mod\$mod.psd1"
-            if (Test-Path $manifestPath) {
-                $iss.ImportPSModule($manifestPath)
-            } else {
-                # Fallback to name import if path is different
-                $iss.ImportPSModule($mod)
-            }
-        } catch {
-            # Log error but continue - missing one module shouldn't break everything
-            Write-Host "Warning: Failed to pre-load module $mod - $_" -ForegroundColor Yellow
-        }
-    }
+    # Hardware Info Box
+    $hw = Get-HardwareInfo
+    $esc = [char]27
+    $cyan = "$esc[36m"
+    $gray = "$esc[90m"
+    $reset = "$esc[0m"
+    $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 52) + ([string][char]0x2557)
+    $boxMid = ([string][char]0x2551)
+    $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 52) + ([string][char]0x255D)
 
-    $rs = [PowerShell]::Create($iss)
+    Write-Host ""
+    Write-Host "  $gray$boxTop$reset"
+    Write-HwLine "CPU" $hw.CPU
+    Write-HwLine "GPU" $hw.GPU
+    Write-HwLine "RAM" $hw.RAM
+    Write-Host "  $gray$boxBot$reset"
     
-    # Capture host environment variables that might be missing in the runspace
-    $hostModulePath = $env:PSModulePath
-    
-    # Add necessary modules and functions to the runspace
-    $modulePath = $ScriptPath # Pass the script path (Local Scope first)
-    if (-not $modulePath) { $modulePath = $global:ScriptPath } # Try Global Scope
-    if (-not $modulePath) { $modulePath = $PWD.Path } # Fallback to PWD
-    
-    $rs.AddScript({
-        param($Path, $SyncHash, $Task, $SuccessMsg, $HostModulePath, $TaskOptions)
-
-        function Log($msg) {
-            try {
-                if ($SyncHash.Window -and -not $SyncHash.Window.Dispatcher.HasShutdownStarted) {
-                    $timestamp = Get-Date -Format "HH:mm:ss"
-                    $null = $SyncHash.Window.Dispatcher.BeginInvoke([Action]{
-                        try {
-                            if ($SyncHash.OutputBox) {
-                                $line = "[$timestamp] $msg`n"
-                                if ($SyncHash.OutputBox.Dispatcher.CheckAccess()) {
-                                    $SyncHash.OutputBox.Text += $line
-                                    if ($SyncHash.OutputBox.Parent -is [System.Windows.Controls.ScrollViewer]) {
-                                        $SyncHash.OutputBox.Parent.ScrollToBottom()
-                                    }
-                                } else {
-                                    $ob = $SyncHash.OutputBox
-                                    $null = $ob.Dispatcher.BeginInvoke([Action]{
-                                        $ob.Text += $line
-                                        if ($ob.Parent -is [System.Windows.Controls.ScrollViewer]) {
-                                            $ob.Parent.ScrollToBottom()
-                                        }
-                                    })
-                                }
-                            }
-                            if ($SyncHash.StatusBox) {
-                                if ($SyncHash.StatusBox.Dispatcher.CheckAccess()) {
-                                    $SyncHash.StatusBox.Text = $msg
-                                } else {
-                                    $sb = $SyncHash.StatusBox
-                                    $smsg = $msg
-                                    $null = $sb.Dispatcher.BeginInvoke([Action]{ $sb.Text = $smsg })
-                                }
-                            }
-                        } catch {}
-                    })
-                }
-            } catch {
-                Write-Host $msg
-            }
-        }
-
-        # Set Global Root for modules to use
-        $global:IlumnulRoot = $Path
-        
-        # Debug Log for Troubleshooting Path Issues
-        $timestamp = Get-Date -Format "HH:mm:ss"
-        Log "Runspace Initialized. Root Path: '$Path'"
-
-        # FIX: Restore PSModulePath and ensure System32 modules are visible
-        if ($HostModulePath) {
-            $env:PSModulePath = $HostModulePath
-        }
-        
-        # Explicitly add System32 PowerShell modules path if missing
-        $sysModPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
-        $sysNativeModPath = "$env:SystemRoot\SysNative\WindowsPowerShell\v1.0\Modules"
-        
-        # Detect if we need to force SysNative import (32-bit process on 64-bit OS)
-        if (Test-Path $sysNativeModPath) {
-             # We are in 32-bit mode, but need 64-bit modules for Appx
-             Log "32-bit Process Detected. Attempting to load 64-bit modules from SysNative..."
-             
-             if ($env:PSModulePath -notlike "*$sysNativeModPath*") {
-                $env:PSModulePath = "$sysNativeModPath;$env:PSModulePath"
-             }
-             
-             # Force import Appx from SysNative with verbose logging on failure
-             $modulesToLoad = @("Appx", "Dism", "ScheduledTasks", "Microsoft.PowerShell.Archive")
-             foreach ($mod in $modulesToLoad) {
-                try {
-                    Import-Module "$sysNativeModPath\$mod\$mod.psd1" -ErrorAction Stop
-                    Log "Loaded $mod from SysNative."
-                } catch {
-                    Log "Failed to load $mod from SysNative: $_"
-                    # Last ditch attempt: name only
-                    try { Import-Module $mod -ErrorAction SilentlyContinue } catch {}
-                }
-             }
-        } else {
-             if ($env:PSModulePath -notlike "*$sysModPath*") {
-                $env:PSModulePath = "$sysModPath;$env:PSModulePath"
-             }
-             # Force import Appx from System32
-             Import-Module "Appx" -ErrorAction SilentlyContinue
-             Import-Module "Dism" -ErrorAction SilentlyContinue
-             Import-Module "ScheduledTasks" -ErrorAction SilentlyContinue
-             Import-Module "Microsoft.PowerShell.Archive" -ErrorAction SilentlyContinue
-        }
-
-        # FINAL CHECK: If modules are still missing, try one more time blindly
-        if (-not (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue)) {
-            Log "WARNING: Get-AppxPackage missing. Attempting blind import..."
-            Import-Module Appx -ErrorAction SilentlyContinue
-        }
-        if (-not (Get-Command Get-AppxProvisionedPackage -ErrorAction SilentlyContinue)) {
-            Log "WARNING: Get-AppxProvisionedPackage missing. Attempting blind import..."
-            Import-Module Dism -ErrorAction SilentlyContinue
-        }
-        if (-not (Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)) {
-            Log "WARNING: Get-ScheduledTask missing. Attempting blind import..."
-            Import-Module ScheduledTasks -ErrorAction SilentlyContinue
-        }
-
-        # Create a proxy scriptblock for the module functions to use
-        $LoggerProxy = { param($m) Log $m }
-        
-        try {
-            if (-not $Path) {
-                throw "Module path is null. Cannot import modules."
-            }
-
-            # Import Modules
-            $modules = @("Debloat.psm1", "Gaming.psm1", "Optimize.psm1", "RemoveAI.psm1")
-            foreach ($m in $modules) {
-                $p = Join-Path $Path "Modules\$m"
-                if (Test-Path $p) { Import-Module $p -Force }
-            }
-            
-            # Execute the task
-            Log "Starting Operation..."
-            & $Task -Logger $LoggerProxy -Options $TaskOptions
-            Log $SuccessMsg
-            
-        } catch {
-            Log "ERROR: $_"
-        }
-    }).AddArgument($modulePath).AddArgument($syncHash).AddArgument($ScriptBlock).AddArgument($SuccessMessage).AddArgument($hostModulePath).AddArgument($OperationOptions)
-
-    try {
-        $asyncHandle = $rs.BeginInvoke()
-    } catch {
-        if (Get-Command Log-Message -ErrorAction SilentlyContinue) {
-            Log-Message "Failed to start operation: $_"
-        }
-        try { $rs.Dispose() } catch {}
-        return
-    }
-
-    if (-not $script:ActiveOperations) {
-        $script:ActiveOperations = [System.Collections.ArrayList]::new()
-    }
-
-    $script:OperationInProgress = $true
-    if (Get-Command Set-ActionButtonsState -ErrorAction SilentlyContinue) {
-        Set-ActionButtonsState -Enabled $false
-    }
-
-    $opTimer = New-Object System.Windows.Threading.DispatcherTimer
-    $opTimer.Interval = [TimeSpan]::FromMilliseconds(300)
-    $opRef = @{ Runspace = $rs; Handle = $asyncHandle; Timer = $opTimer }
-    [void]$script:ActiveOperations.Add($opRef)
-
-    $opTimer.Add_Tick({
-        $state = $rs.InvocationStateInfo.State
-        if ($state -in @('Completed','Failed','Stopped')) {
-            $opTimer.Stop()
-            try { $rs.EndInvoke($asyncHandle) | Out-Null } catch {}
-            try { $rs.Dispose() } catch {}
-            if ($script:ActiveOperations) {
-                for ($i = $script:ActiveOperations.Count - 1; $i -ge 0; $i--) {
-                    if ($script:ActiveOperations[$i].Runspace -eq $rs) {
-                        $script:ActiveOperations.RemoveAt($i)
-                    }
-                }
-            }
-            $script:OperationInProgress = $false
-            if (Get-Command Set-ActionButtonsState -ErrorAction SilentlyContinue) {
-                Set-ActionButtonsState -Enabled $true
-            }
-        }
-    })
-    $opTimer.Start()
+    $borderLine = ([string][char]0x2500) * 54
+    Write-Host "  $borderLine" -ForegroundColor Gray
 }
 
-try {
-    $window.FindName("TopBar").Add_MouseLeftButtonDown({ $window.DragMove() })
+function Get-MenuSelection {
+    param([string[]]$Options)
+    $selectedIndex = 0
+    $esc = [char]27
+    $bold = "$esc[1m"
+    $cyan = "$esc[36m"
+    $reset = "$esc[0m"
 
-    
-    $btnMinimize = $window.FindName("btnMinimize")
-    if ($btnMinimize) { $btnMinimize.Add_Click({ $window.WindowState = "Minimized" }) }
-    
-    $btnClose = $window.FindName("btnClose")
-    if ($btnClose) { $btnClose.Add_Click({ $window.Close() }) }
-
-    # Hardware Info Initialization
-    $txtCpuName   = $window.FindName("txtCpuName")
-    $txtGpuName   = $window.FindName("txtGpuName")
-    $txtGpuDetail = $window.FindName("txtGpuDetail")
-    $txtGpuDriver = $window.FindName("txtGpuDriver")
-    $txtRamDetail = $window.FindName("txtRamDetail")
-    $txtDiskDetail = $window.FindName("txtDiskDetail")
-    $txtOsVersion = $window.FindName("txtOsVersion")
-
-    # Gather Hardware Info
-    $hwInfo = @{}
-    try {
-        $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
-        $hwInfo.CPU = $cpu.Name
-        
-        $gpu = Get-CimInstance Win32_VideoController | Select-Object -First 1
-        $hwInfo.GPU = $gpu.Name
-        
-        $os = Get-CimInstance Win32_OperatingSystem
-        $totalRamGB = [math]::Round($os.TotalVisibleMemorySize / 1MB / 1024, 0)
-        $hwInfo.RAM = "$totalRamGB GB"
-    } catch {
-        $hwInfo.CPU = "Unknown CPU"
-        $hwInfo.GPU = "Unknown GPU"
-        $hwInfo.RAM = "Unknown RAM"
-    }
-
-    # Set Static Data (Names & OS)
-    if ($txtCpuName) { $txtCpuName.Text = $hwInfo.CPU }
-    if ($txtGpuName) { $txtGpuName.Text = $hwInfo.GPU }
-    
-    # Get Static Hardware Details
-    try {
-        $osInfo = Get-CimInstance Win32_OperatingSystem
-        if ($txtOsVersion) { $txtOsVersion.Text = "$($osInfo.Caption) - Build $($osInfo.BuildNumber)" }
-        
-        $gpuInfo = Get-CimInstance Win32_VideoController | Select-Object -First 1
-        if ($txtGpuDetail) { $txtGpuDetail.Text = "$($gpuInfo.CurrentHorizontalResolution) x $($gpuInfo.CurrentVerticalResolution) @ $($gpuInfo.CurrentRefreshRate)Hz" }
-        if ($txtGpuDriver) { $txtGpuDriver.Text = "Driver: $($gpuInfo.DriverVersion)" }
-
-        # RAM Total
-        if ($txtRamDetail) { $txtRamDetail.Text = "$($hwInfo.RAM) Total" }
-
-        # Disk C: Total Size
-        $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
-        if ($disk -and $txtDiskDetail) {
-             $totalDisk = [math]::Round($disk.Size / 1GB, 0)
-             $txtDiskDetail.Text = "Drive C: $totalDisk GB Total"
-        }
-    } catch {}
-
-    # -----------------------------------------------------------------------------
-    # Real-Time Stats (Background Threading to prevent UI Lag)
-    # -----------------------------------------------------------------------------
-    
-    # Synchronized Hashtable for thread-safe data exchange
-    $syncHash = [Hashtable]::Synchronized(@{})
-    $syncHash.CpuLoad = "0"
-    $syncHash.CpuDetail = "Detecting..."
-    $syncHash.RamDetail = "Detecting..."
-    $syncHash.RamLoad = "0"
-    $syncHash.RamPercent = 0
-    $syncHash.DiskDetail = "Detecting..."
-    $syncHash.DiskLoad = "0"
-    $syncHash.DiskPercent = 0
-    $syncHash.Uptime = "00:00:00"
-    $syncHash.Run = $true
-
-    # Create Runspace for background worker
-    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
-    $runspace = [PowerShell]::Create($iss).AddScript({
-        param($sync)
-        
-        # Import modules for hardware monitoring
-        Import-Module CimCmdlets -ErrorAction SilentlyContinue
-        Import-Module Storage -ErrorAction SilentlyContinue
-
-        while ($sync.Run) {
-            try {
-                # CPU Stats (Fastest way using CIM)
-                $cpu = Get-CimInstance Win32_Processor
-                $load = $cpu.LoadPercentage
-                $sync.CpuLoad = "$load%"
-                $sync.CpuRaw = $load
-                $sync.CpuDetail = "$($cpu.NumberOfCores) Cores / $($cpu.NumberOfLogicalProcessors) Threads @ $([math]::Round($cpu.MaxClockSpeed/1000, 2)) GHz"
-
-                # RAM Stats
-                $os = Get-CimInstance Win32_OperatingSystem
-                $totalRam = $os.TotalVisibleMemorySize / 1MB
-                $freeRam = $os.FreePhysicalMemory / 1MB
-                $usedRam = $totalRam - $freeRam
-                $ramPercent = [math]::Round(($usedRam / $totalRam) * 100, 0)
-                
-                $sync.RamDetail = "$([math]::Round($usedRam, 1)) GB / $([math]::Round($totalRam, 1)) GB"
-                $sync.RamLoad = "$ramPercent%"
-                $sync.RamPercent = $ramPercent
-
-                # Disk Stats (C:)
-                $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
-                if ($disk) {
-                    $totalDisk = $disk.Size / 1GB
-                    $freeDisk = $disk.FreeSpace / 1GB
-                    $usedDisk = $totalDisk - $freeDisk
-                    $diskPercent = [math]::Round(($usedDisk / $totalDisk) * 100, 0)
-                    
-                    $sync.DiskDetail = "$([math]::Round($freeDisk, 1)) GB Free / $([math]::Round($totalDisk, 0)) GB"
-                    $sync.DiskLoad = "$diskPercent%"
-                    $sync.DiskPercent = $diskPercent
-                }
-
-                # Uptime
-                $uptime = (Get-Date) - $os.LastBootUpTime
-                $sync.Uptime = "{0:dd}d {0:hh}h {0:mm}m" -f $uptime
-                
-            } catch {
-                # Log error or ignore
-            }
-            
-            # Sleep to prevent high CPU usage from the monitoring thread itself
-            Start-Sleep -Seconds 2
-        }
-    }).AddArgument($syncHash)
-    
-    # Start the background thread
-    $asyncResult = $runspace.BeginInvoke()
-
-    # UI Timer - ONLY updates UI from the synchronized hashtable (Lightweight)
-    $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromSeconds(1)
-    $timer.Add_Tick({
-        try {
-            Set-ControlTextSafe -Control $txtCpuLoad -Value $syncHash.CpuLoad
-            if ($pbCpu) { $pbCpu.Value = $syncHash.CpuRaw }
-            Set-ControlTextSafe -Control $txtCpuDetail -Value $syncHash.CpuDetail
-
-            Set-ControlTextSafe -Control $txtRamDetail -Value $syncHash.RamDetail
-            Set-ControlTextSafe -Control $txtRamLoad -Value $syncHash.RamLoad
-            if ($pbRam) { $pbRam.Value = $syncHash.RamPercent }
-
-            Set-ControlTextSafe -Control $txtDiskDetail -Value $syncHash.DiskDetail
-            Set-ControlTextSafe -Control $txtDiskLoad -Value $syncHash.DiskLoad
-            if ($pbDisk) { $pbDisk.Value = $syncHash.DiskPercent }
-
-            Set-ControlTextSafe -Control $txtUptime -Value $syncHash.Uptime
-        } catch { }
-    })
-    $timer.Start()
-
-    # Cleanup on Close
-    $window.Add_Closed({
-        $syncHash.Run = $false
-        if ($timer) { $timer.Stop() }
-    })
-
-    # Navigation
-    $views = @{
-        "Dashboard" = $window.FindName("viewDashboard")
-        "Debloat"   = $window.FindName("viewDebloat")
-        "Gaming"    = $window.FindName("viewGaming")
-        "Privacy"   = $window.FindName("viewPrivacy")
-        "AI"        = $window.FindName("viewAI")
-        "Settings"  = $window.FindName("viewSettings")
-        "Terminal"  = $window.FindName("viewTerminal")
-    }
-
-    $sbSlideIn = $window.Resources["SlideInRight"]
-
-    function Switch-View {
-        param($Name)
-        foreach ($key in $views.Keys) {
-            if ($views[$key]) { 
-                $views[$key].Visibility = "Collapsed" 
-            }
-        }
-        if ($views[$Name]) { 
-            $views[$Name].Visibility = "Visible"
-            if ($sbSlideIn) {
-                $sbSlideIn.Begin($views[$Name])
-            }
-        }
-    }
-
-    $window.FindName("navDashboard").Add_Click({ Switch-View "Dashboard" })
-    $window.FindName("navDebloat").Add_Click({ Switch-View "Debloat" })
-    $window.FindName("navGaming").Add_Click({ Switch-View "Gaming" })
-    $window.FindName("navPrivacy").Add_Click({ Switch-View "Privacy" })
-    $window.FindName("navAI").Add_Click({ Switch-View "AI" })
-    $window.FindName("navSettings").Add_Click({ Switch-View "Settings" })
-    $window.FindName("navTerminal").Add_Click({ Switch-View "Terminal" })
-
-    function Set-ControlTextSafe {
-        param($Control, [string]$Value)
-        if (-not $Control) { return }
-        try {
-            if ($Control.Dispatcher.CheckAccess()) {
-                $Control.Text = $Value
+    while ($true) {
+        Show-Header
+        Write-Host ""
+        for ($i = 0; $i -lt $Options.Count; $i++) {
+            if ($i -eq $selectedIndex) {
+                Write-Host "    $bold$cyan > $($Options[$i])$reset" -ForegroundColor Cyan
             } else {
-                $target = $Control
-                $textValue = $Value
-                $null = $target.Dispatcher.BeginInvoke([Action]{ $target.Text = $textValue })
+                Write-Host "      $($Options[$i])" -ForegroundColor Gray
             }
-        } catch {}
+        }
+        Write-Host ""
+        $borderLine = ([string][char]0x2500) * 54
+        Write-Host "  $borderLine" -ForegroundColor Gray
+        Write-Host "  Use Up/Down arrows to navigate, Enter to select." -ForegroundColor DarkGray
+
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        if ($key.VirtualKeyCode -eq 38) { # Up
+            $selectedIndex = if ($selectedIndex -eq 0) { $Options.Count - 1 } else { $selectedIndex - 1 }
+        } elseif ($key.VirtualKeyCode -eq 40) { # Down
+            $selectedIndex = if ($selectedIndex -eq $Options.Count - 1) { 0 } else { $selectedIndex + 1 }
+        } elseif ($key.VirtualKeyCode -eq 13) { # Enter
+            return $selectedIndex
+        }
+    }
+}
+
+# Main Entry Point
+$global:MusicEnabled = $true
+Show-Header
+Write-Typewriter " [SYSTEM] Initializing IlumnulOS Ultimate v2.0..." -Delay 15 -Color Cyan
+Write-Typewriter " [SYSTEM] Loading modules and verifying environment..." -Delay 10 -Color Gray
+Start-Sleep -Seconds 1
+
+# Main Loop - Pre-calculate Hardware Info ONCE
+$global:cachedHwInfo = Get-HardwareInfo
+
+# Optimized Show-Header using Cached Info
+function Show-Header-Optimized {
+    param([bool]$clear = $true)
+    if ($clear) { Clear-Host }
+    $esc = [char]27
+    $bold = "$esc[1m"
+    $reset = "$esc[0m"
+
+    # Gradient ASCII Art
+    $lines = @(
+        "    __  __                          __ ____  _____",
+        "   / / / /_  ______ ___  ____  __  __/ / __ \/ ___/",
+        "  / / / / / / / __ `__ \/ __ \/ / / / / / / /\__ \ ",
+        " / /_/ / /_/ / / / / / / / / / /_/ / / /_/ /___/ / ",
+        " \____/\__,_/_/ /_/ /_/_/ /_/\__,_/_/\____//____/  "
+    )
+    foreach ($line in $lines) {
+        Write-Host (Get-GradientText $line 150 0 255 0 255 255)
+    }
+    
+    $subtitle = "          Windows 11 Ultimate Optimization Tool"
+    Write-Host (Get-GradientText $subtitle 0 255 255 255 255 255)
+    
+    # Use Cached Hardware Info
+    $hw = $global:cachedHwInfo
+    $cyan = "$esc[36m"
+    $gray = "$esc[90m"
+    $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 52) + ([string][char]0x2557)
+    $boxMid = ([string][char]0x2551)
+    $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 52) + ([string][char]0x255D)
+
+    Write-Host ""
+    Write-Host "  $gray$boxTop$reset"
+    Write-HwLine "CPU" $hw.CPU
+    Write-HwLine "GPU" $hw.GPU
+    Write-HwLine "RAM" $hw.RAM
+    Write-Host "  $gray$boxBot$reset"
+    
+    $borderLine = ([string][char]0x2500) * 54
+    Write-Host "  $borderLine" -ForegroundColor Gray
+}
+
+# Main Loop
+while ($true) {
+    $esc = [char]27
+    $green = "$esc[32m"
+    $gray = "$esc[90m"
+    $reset = "$esc[0m"
+    
+    $musicToggle = if ($global:MusicEnabled) { "$green$([string][char]0x25CF)$([string][char]0x2500)$([string][char]0x2500)$([string][char]0x2500)$gray$([string][char]0x25CB)$reset ON " } else { "$gray$([string][char]0x25CB)$([string][char]0x2500)$([string][char]0x2500)$([string][char]0x2500)$reset$([string][char]0x25CF) OFF" }
+    
+    $menuOptions = @("Start Optimization (Full Suite)", "Music: [$musicToggle]", "Exit")
+    
+    # Inline Menu Logic for Maximum Speed
+    $selectedIndex = 0
+    $inMenu = $true
+    
+    # Draw initial header
+    Show-Header-Optimized -clear $true
+    
+    while ($inMenu) {
+        # Only redraw menu part by moving cursor
+        $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates(0, 15) # Adjust based on header height
+        
+        Write-Host ""
+        $cyan = "$esc[36m"
+        $bold = "$esc[1m"
+        
+        for ($i = 0; $i -lt $menuOptions.Count; $i++) {
+            # Clear line first
+            Write-Host (" " * 80) -NoNewline 
+            $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates(0, $Host.UI.RawUI.CursorPosition.Y)
+            
+            if ($i -eq $selectedIndex) {
+                Write-Host "    $bold$cyan > $($menuOptions[$i])$reset" -ForegroundColor Cyan
+            } else {
+                Write-Host "      $($menuOptions[$i])" -ForegroundColor Gray
+            }
+        }
+        Write-Host ""
+        $borderLine = ([string][char]0x2500) * 54
+        Write-Host "  $borderLine" -ForegroundColor Gray
+        Write-Host "  Use Up/Down arrows to navigate, Enter to select." -ForegroundColor DarkGray
+
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        if ($key.VirtualKeyCode -eq 38) { # Up
+            $selectedIndex = if ($selectedIndex -eq 0) { $menuOptions.Count - 1 } else { $selectedIndex - 1 }
+        } elseif ($key.VirtualKeyCode -eq 40) { # Down
+            $selectedIndex = if ($selectedIndex -eq $menuOptions.Count - 1) { 0 } else { $selectedIndex + 1 }
+        } elseif ($key.VirtualKeyCode -eq 13) { # Enter
+            $choiceIndex = $selectedIndex
+            $inMenu = $false
+        }
     }
 
-    # Logging System
-    $txtTerminalOutput = $window.FindName("txtTerminalOutput")
-    $txtStatus = $window.FindName("txtStatus")
-    
-    function Log-Message {
-        param([string]$Message)
-        $appendUi = {
+    if ($choiceIndex -eq 0) {
+        $esc = [char]27
+        $bold = "$esc[1m"
+        $reset = "$esc[0m"
+
+        Clear-Host
+        Show-Header
+        
+        if ($global:MusicEnabled) {
+            $musicPath = "$ScriptPath\Modules\IlumnulOS.mp3"
+            if (Test-Path $musicPath) {
+                Start-Music -FilePath $musicPath
+                $cliLogger.Invoke("Playing background music: IlumnulOS.mp3")
+            }
+        }
+        
+        Write-Typewriter " [OPTIMIZE] Starting system-wide optimization..." -Delay 20 -Color Green
+        Start-Sleep -Seconds 1
+        
+        # Draw the Log Box (Fixed Terminal Window)
+        Write-Host ""
+        $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 100) + ([string][char]0x2557)
+        $boxMid = ([string][char]0x2551)
+        $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 100) + ([string][char]0x255D)
+        
+        Write-Host "  $gray$boxTop$reset"
+        # We need to reserve space for the log lines. Let's say 10 lines of logs.
+        $logHeight = 10
+        $logStartY = $Host.UI.RawUI.CursorPosition.Y
+        
+        for ($i = 0; $i -lt $logHeight; $i++) {
+            Write-Host "  $gray$boxMid$reset                                                                                                    $gray$boxMid$reset"
+        }
+        Write-Host "  $gray$boxBot$reset"
+        
+        # Store the Y coordinates for the log area
+        $global:LogAreaTop = $logStartY
+        $global:LogAreaBottom = $logStartY + $logHeight
+        $global:LogCurrentLine = 0
+        $global:LogHistory = New-Object System.Collections.Generic.List[string]
+
+        # Override the logger to print INSIDE the box
+        $cliLogger = [Action[string]] { 
+            param($msg) 
             $timestamp = Get-Date -Format "HH:mm:ss"
-            if ($txtTerminalOutput) {
-                $txtTerminalOutput.Text += "[$timestamp] $Message`n"
-                if ($txtTerminalOutput.Parent -is [System.Windows.Controls.ScrollViewer]) {
-                    $txtTerminalOutput.Parent.ScrollToBottom()
-                }
-            }
-            Set-ControlTextSafe -Control $txtStatus -Value $Message
-        }
-        try {
-            if ($window -and $window.Dispatcher.CheckAccess()) {
-                & $appendUi
-            } else {
-                $null = $window.Dispatcher.BeginInvoke([Action]$appendUi)
-            }
-        } catch {
-            Write-Host $Message
-        }
-    }
-
-    $window.Dispatcher.add_UnhandledException({
-        param($sender, $e)
-        try {
-            Log-Message "UI Exception: $($e.Exception.Message)"
-            $e.Handled = $true
-        } catch {}
-    })
+            $esc = [char]27
+            $bold = "$esc[1m"
+            $reset = "$esc[0m"
+            
+            # Status Icons
+    $iconOk = "$([char]0x2714)"      # Checkmark
+    $iconFail = "$([char]0x2718)"    # X
+    $iconWarn = "$([char]0x26A0)"    # Warning Triangle
+    $iconSkull = "$([char]0x2620)"   # Skull
     
-    $window.FindName("btnClearTerminal").Add_Click({ Set-ControlTextSafe -Control $txtTerminalOutput -Value "" })
-
-    # Actions
-    $btnOneClick = $window.FindName("btnOneClick")
-    $btnRunDebloat = $window.FindName("btnRunDebloat")
-    $btnRunGaming = $window.FindName("btnRunGaming")
-    $btnNvidiaProfile = $window.FindName("btnNvidiaProfile")
-    $btnRunPrivacy = $window.FindName("btnRunPrivacy")
-    $btnRunAI = $window.FindName("btnRunAI")
-    $btnRunOptimize = $window.FindName("btnRunOptimize")
-    $chkRemoveAppx = $window.FindName("chkRemoveAppx")
-    $chkRemoveOneDrive = $window.FindName("chkRemoveOneDrive")
-    $chkRemoveCortana = $window.FindName("chkRemoveCortana")
-    $chkDisableServices = $window.FindName("chkDisableServices")
-    $chkGameMode = $window.FindName("chkGameMode")
-    $chkGPUPriority = $window.FindName("chkGPUPriority")
-    $chkDisableGameBar = $window.FindName("chkDisableGameBar")
-    $chkHAGS = $window.FindName("chkHAGS")
-    $chkNetworkTweaks = $window.FindName("chkNetworkTweaks")
-    $chkDisableTelemetry = $window.FindName("chkDisableTelemetry")
-    $chkDisableAdvertising = $window.FindName("chkDisableAdvertising")
-    $chkDisableLocation = $window.FindName("chkDisableLocation")
-    $chkDisableCopilot = $window.FindName("chkDisableCopilot")
-    $chkDisableRecall = $window.FindName("chkDisableRecall")
-    $chkDisableOfficeAI = $window.FindName("chkDisableOfficeAI")
-    $chkPowerPlan = $window.FindName("chkPowerPlan")
-    $chkDisableHibernation = $window.FindName("chkDisableHibernation")
-    $chkDisableSearchIndexing = $window.FindName("chkDisableSearchIndexing")
-    $chkVisualEffects = $window.FindName("chkVisualEffects")
-    $btnCleanTemp = $window.FindName("btnCleanTemp")
-    $btnRestartExplorer = $window.FindName("btnRestartExplorer")
-    $btnFlushDNS = $window.FindName("btnFlushDNS")
-
-    $script:OperationInProgress = $false
-    $script:TweakButtons = @($btnOneClick, $btnRunDebloat, $btnRunGaming, $btnNvidiaProfile, $btnRunPrivacy, $btnRunAI, $btnRunOptimize, $btnCleanTemp, $btnRestartExplorer, $btnFlushDNS)
-
-    function Set-ActionButtonsState {
-        param([bool]$Enabled)
-        foreach ($btn in $script:TweakButtons) {
-            if ($btn) {
-                $btn.IsEnabled = $Enabled
-            }
-        }
+    # Progress Bar logic (embedded in log)
+    # Format: [||||||||||  ] 80%
+    if ($msg -match '^\[P(\d+)\] (.*)') {
+        $pct = [int]$matches[1]
+        $txt = $matches[2]
+        $barLen = 20
+        $filledLen = [int]($barLen * $pct / 100)
+        $bar = ("$([char]0x2588)" * $filledLen) + ("$([char]0x2591)" * ($barLen - $filledLen))
+        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset [$bar] $pct% $txt"
+    } elseif ($msg -match 'Error' -or $msg -match 'FAILED') {
+        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $iconFail $msg"
+    } elseif ($msg -match 'Success' -or $msg -match 'OK' -or $msg -match 'Finished' -or $msg -match 'completed successfully') {
+        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $iconOk $msg"
+    } elseif ($msg -match 'Warning' -or $msg -match 'skipped') {
+        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $iconWarn $msg"
+    } elseif ($msg -match 'Removing' -or $msg -match 'Disabling' -or $msg -match 'Purging') {
+        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $iconSkull $msg"
+    } elseif ($msg -match '^\[\d/\d\]') {
+            $formattedMsg = "$bold$([char]0x2550)$([char]0x2550) $msg $([char]0x2550)$([char]0x2550)$reset"
+    } else {
+        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $msg"
     }
 
-    $logAction = [Action[string]] { param($msg) Log-Message $msg }
-
-    if ($btnRunDebloat) {
-        $btnRunDebloat.Add_Click({
-            if ([System.Windows.MessageBox]::Show("This will remove pre-installed apps and disable services. Continue?", "Confirm Debloat", "YesNo", "Warning") -eq "Yes") {
-                $opts = @{
-                    RemoveAppx = [bool]$chkRemoveAppx.IsChecked
-                    RemoveOneDrive = [bool]$chkRemoveOneDrive.IsChecked
-                    RemoveCortana = [bool]$chkRemoveCortana.IsChecked
-                    DisableServices = [bool]$chkDisableServices.IsChecked
-                    DisableTelemetry = $true
-                    DisableAdvertising = $true
-                    DisableLocation = $true
-                }
-                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Remove-Bloatware -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "Debloat Finished."
+            # Add to history
+            $global:LogHistory.Add($formattedMsg)
+            
+            # Logic to scroll: If history > height, we take the last N items
+            $displayLines = $global:LogHistory
+            if ($global:LogHistory.Count -gt $logHeight) {
+                $startIndex = $global:LogHistory.Count - $logHeight
+                $displayLines = $global:LogHistory.GetRange($startIndex, $logHeight)
             }
-        })
-    }
-    
-    if ($btnRunGaming) {
-        $btnRunGaming.Add_Click({
-            if ([System.Windows.MessageBox]::Show("This will apply gaming optimizations and power plans. Continue?", "Confirm Gaming Boost", "YesNo", "Information") -eq "Yes") {
-                $opts = @{
-                    GameMode = [bool]$chkGameMode.IsChecked
-                    GPUPriority = [bool]$chkGPUPriority.IsChecked
-                    DisableGameBar = [bool]$chkDisableGameBar.IsChecked
-                    HAGS = [bool]$chkHAGS.IsChecked
-                    NetworkTweaks = [bool]$chkNetworkTweaks.IsChecked
-                }
-                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Invoke-GamingOptimization -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "Gaming Boost Finished."
+            
+            # Redraw the log area
+            $currentY = $global:LogAreaTop
+            foreach ($line in $displayLines) {
+                # Clear the inner part of the line (70 chars wide approx, excluding borders)
+                # Border is at X=2 (start) and X=73 (end) approx. 
+                # Actually X=2 is the start of the string printed "  ║". So the text starts at X=4.
+                # Box width is 70 chars of content.
+                
+                # We need to strip ANSI codes for length calculation to pad correctly, but that's complex in PS.
+                # Simplification: Overwrite with spaces then print.
+                
+                # Move to text start position
+                $coord = New-Object System.Management.Automation.Host.Coordinates 4, $currentY
+                $Host.UI.RawUI.CursorPosition = $coord
+                Write-Host (" " * 98) -NoNewline # Clear content
+                
+                $Host.UI.RawUI.CursorPosition = $coord
+                
+                # Truncate if too long to fit in box
+                if ($line.Length -gt 98) { $line = $line.Substring(0, 98) }
+                Write-Host $line -NoNewline
+                
+                $currentY++
             }
-        })
-    }
-
-    if ($btnNvidiaProfile) {
-        $btnNvidiaProfile.Add_Click({
-            if ([System.Windows.MessageBox]::Show("This will download and apply a custom NVIDIA Profile. Continue?", "Confirm NVIDIA Profile", "YesNo", "Information") -eq "Yes") {
-                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Invoke-NvidiaProfile -Logger $Logger } -SuccessMessage "NVIDIA Profile Process Finished."
-            }
-        })
-    }
-
-    if ($btnRunPrivacy) {
-        $btnRunPrivacy.Add_Click({
-            if ([System.Windows.MessageBox]::Show("This will disable telemetry and tracking features. Continue?", "Confirm Privacy", "YesNo", "Information") -eq "Yes") {
-                $opts = @{
-                    RemoveAppx = $false
-                    RemoveOneDrive = $false
-                    RemoveCortana = $false
-                    DisableServices = $false
-                    DisableTelemetry = [bool]$chkDisableTelemetry.IsChecked
-                    DisableAdvertising = [bool]$chkDisableAdvertising.IsChecked
-                    DisableLocation = [bool]$chkDisableLocation.IsChecked
-                }
-                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Remove-Bloatware -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "Privacy Tweaks Applied."
-            }
-        })
-    }
-
-    if ($btnRunAI) {
-        $btnRunAI.Add_Click({
-            if ([System.Windows.MessageBox]::Show("WARNING: This will permanently remove Copilot, Recall, and AI components. This action is aggressive. Continue?", "Confirm AI Removal", "YesNo", "Warning") -eq "Yes") {
-                $opts = @{
-                    DisableCopilot = [bool]$chkDisableCopilot.IsChecked
-                    DisableRecall = [bool]$chkDisableRecall.IsChecked
-                    DisableOfficeAI = [bool]$chkDisableOfficeAI.IsChecked
-                }
-                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Remove-WindowsAI -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "AI Removal Complete."
-            }
-        })
-    }
-
-    if ($btnRunOptimize) {
-        $btnRunOptimize.Add_Click({
-            if ([System.Windows.MessageBox]::Show("This will apply general system performance tweaks. Continue?", "Confirm Optimization", "YesNo", "Information") -eq "Yes") {
-                $opts = @{
-                    PowerPlan = [bool]$chkPowerPlan.IsChecked
-                    DisableHibernation = [bool]$chkDisableHibernation.IsChecked
-                    DisableSearchIndexing = [bool]$chkDisableSearchIndexing.IsChecked
-                    VisualEffects = [bool]$chkVisualEffects.IsChecked
-                }
-                Start-AsyncOperation -ScriptBlock { param($Logger, $Options) Invoke-SystemOptimization -Logger $Logger -Options $Options } -OperationOptions $opts -SuccessMessage "System Optimization Finished."
-            }
-        })
-    }
-
-    if ($btnOneClick) {
-        $btnOneClick.Add_Click({
-            if ([System.Windows.MessageBox]::Show("ONE-CLICK MODE: This will run ALL optimizations (Debloat, Gaming, AI Removal, System). This may take a while. Are you sure?", "Confirm One-Click", "YesNo", "Warning") -eq "Yes") {
-                Start-AsyncOperation -ScriptBlock { 
-                    param($Logger, $Options)
-                    Invoke-SystemOptimization -Logger $Logger
-                    Invoke-GamingOptimization -Logger $Logger
-                    Remove-Bloatware -Logger $Logger
-                    Remove-WindowsAI -Logger $Logger
-                } -SuccessMessage "One-Click Optimization Complete."
-            }
-        })
-    }
-
-    # Quick Actions
-    $btnCleanTemp.Add_Click({
-        Start-AsyncOperation -ScriptBlock {
-            param($Logger, $Options)
-            if ($Logger) { $Logger.Invoke("Cleaning Temp Files...") }
-            Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
-            if ($Logger) { $Logger.Invoke("Temp Files Cleaned.") }
-        } -SuccessMessage "Temp cleanup finished."
-    })
-    
-    $btnRestartExplorer.Add_Click({
-        Start-AsyncOperation -ScriptBlock {
-            param($Logger, $Options)
-            if ($Logger) { $Logger.Invoke("Restarting Explorer...") }
-            Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
-            if ($Logger) { $Logger.Invoke("Explorer Restarted.") }
-        } -SuccessMessage "Explorer restart finished."
-    })
-
-    $btnFlushDNS.Add_Click({
-        Start-AsyncOperation -ScriptBlock {
-            param($Logger, $Options)
-            if ($Logger) { $Logger.Invoke("Flushing DNS...") }
-            ipconfig /flushdns | Out-Null
-            if ($Logger) { $Logger.Invoke("DNS Flushed.") }
-        } -SuccessMessage "DNS flush finished."
-    })
-
-} catch {
-    Write-Host "UI Initialization Error: $_"
-}
-
-if ($window) {
-    try {
-        $window.ShowDialog() | Out-Null
-    } catch {
-        Write-Error "CRITICAL ERROR: Failed to show window dialog. $_"
-    } finally {
-        # Cleanup background resources after window closes to prevent UI freeze
-        if ($syncHash) { $syncHash.Run = $false }
-
-        if ($script:ActiveOperations) {
-            foreach ($op in @($script:ActiveOperations)) {
-                try { if ($op.Timer) { $op.Timer.Stop() } } catch {}
-                try {
-                    if ($op.Runspace -and $op.Runspace.InvocationStateInfo.State -eq 'Running') {
-                        $op.Runspace.Stop()
-                    }
-                } catch {}
-                try { if ($op.Runspace) { $op.Runspace.Dispose() } } catch {}
-            }
+            
+            # Reset cursor to below the box to avoid messing up other output if any
+            $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, ($global:LogAreaBottom + 1)
         }
         
-        if ($runspace) {
-            try {
-                if ($runspace.InvocationStateInfo.State -eq 'Running') {
-                    $runspace.Stop()
-                }
-                $runspace.Dispose()
-            } catch {}
+        # 1. System Optimization
+        # Force a small delay to let UI stabilize
+        Start-Sleep -Milliseconds 200
+        $cliLogger.Invoke("[1/6] System Performance Optimization")
+        
+        # NOTE: Write-Spinner is removed because it writes outside the box and messes up cursor position.
+        # Replacing with log messages.
+        $cliLogger.Invoke("Analyzing System Configuration...")
+        Invoke-SystemOptimization -Logger $cliLogger
+        
+        # 2. Gaming Optimization
+        $cliLogger.Invoke("[2/6] Gaming and Latency Optimization")
+        $cliLogger.Invoke("Applying Gaming Tweaks...")
+        Invoke-GamingOptimization -Logger $cliLogger -Options @{ GameMode = $true }
+        
+        # 3. NVIDIA Profile Tweak
+        $cliLogger.Invoke("[3/6] NVIDIA Profile Inspector Tweak")
+        $cliLogger.Invoke("Checking GPU Settings...")
+        Invoke-NvidiaProfile -Logger $cliLogger
+        
+        # 4. Privacy and Debloat
+        $cliLogger.Invoke("[4/6] Privacy and Debloat")
+        $cliLogger.Invoke("Removing Bloatware...")
+        Remove-Bloatware -Logger $cliLogger
+        
+        # 5. AI Removal
+        $cliLogger.Invoke("[5/6] AI and Copilot Removal")
+        $cliLogger.Invoke("Purging AI Components...")
+        Remove-WindowsAI -Logger $cliLogger
+        
+        # 6. Final Cleanup
+        $cliLogger.Invoke("[6/6] Finalizing and Cleanup")
+        $cliLogger.Invoke("Cleaning Disk...")
+        ipconfig /flushdns | Out-Null
+        $cliLogger.Invoke("DNS Cache Flushed.")
+        
+        $cliLogger.Invoke("Cleaning temporary files...")
+        $tempPaths = @("$env:TEMP\*", "$env:SystemRoot\Temp\*")
+        foreach ($path in $tempPaths) {
+            try { Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue | Out-Null } catch {}
         }
+        
+        $cliLogger.Invoke("Restarting Explorer to apply changes...")
+        Stop-Process -Name Explorer -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        
+        if ($global:MusicEnabled) { Stop-Music }
+        
+        # Final Scorecard
+        Write-Host ""
+        $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 52) + ([string][char]0x2557)
+        $boxMid = ([string][char]0x2551)
+        $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 52) + ([string][char]0x255D)
+        
+        Write-Host "  $gray$boxTop$reset"
+        Write-Host "  $gray$boxMid$reset $green OPTIMIZATION REPORT:$reset                              $gray$boxMid$reset"
+        Write-Host "  $gray$boxMid$reset $cyan Status     :$reset Completed Successfully               $gray$boxMid$reset"
+        Write-Host "  $gray$boxMid$reset $cyan Performance:$reset Maximized (Ultimate Mode)            $gray$boxMid$reset"
+        Write-Host "  $gray$boxMid$reset $cyan Privacy    :$reset Enhanced                             $gray$boxMid$reset"
+        Write-Host "  $gray$boxMid$reset $cyan Telemetry  :$reset Purged                               $gray$boxMid$reset"
+        Write-Host "  $gray$boxBot$reset"
+        Write-Host ""
+        
+        $cliLogger.Invoke("Success: Optimization Suite Finished!")
+        Write-Host "`n  Press any key to return to menu..." -ForegroundColor Gray
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    } elseif ($choiceIndex -eq 1) {
+        $global:MusicEnabled = -not $global:MusicEnabled
+    } else {
+        Write-Typewriter " [SYSTEM] Exiting... Stay optimized!" -Delay 20 -Color Cyan
+        break
     }
 }
