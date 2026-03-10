@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/language-PowerShell%20%7C%20WPF-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-orange.svg)
 
-**IlumnulOS** is a powerful, modern, and comprehensive optimization tool designed specifically for Windows 11. Built with PowerShell and a sleek WPF (Glass/iOS-like) user interface, it provides a one-stop solution to debloat, optimize performance, enhance privacy, and remove invasive AI features like Copilot and Recall.
+**IlumnulOS** is a powerful, modern, and comprehensive optimization tool designed specifically for Windows 11. Built with PowerShell, it provides a simple CLI interface to debloat, optimize performance, enhance privacy, and remove invasive AI features like Copilot and Recall.
 
 ---
 
@@ -25,17 +25,13 @@
 
 ## ✨ Features
 
-IlumnulOS organizes its capabilities into intuitive modules accessible via a modern sidebar interface:
+IlumnulOS organizes its capabilities into intuitive modules:
 
-*   **🖥️ Professional Dashboard**: View real-time hardware specifications (CPU, GPU, RAM, Disk) and system uptime in a clean, card-based layout.
-*   **🚀 Debloat**: Remove pre-installed bloatware, Windows Store apps, OneDrive, and Cortana to free up resources.
+*   ** Debloat**: Remove pre-installed bloatware, Windows Store apps, OneDrive, and Cortana to free up resources.
 *   **🎮 Gaming Mode**: Optimize system latency, enable Game Mode, adjust GPU priorities, and disable background services for maximum FPS.
 *   **🔒 Privacy Shield**: Disable telemetry, data collection, location tracking, and advertising IDs to reclaim your privacy.
 *   **🤖 AI Control Center**: **Exclusive Feature**. Completely disable and remove Windows Intelligence, Copilot, Recall (Snapshots), and Office AI integrations.
 *   **⚡ System Tuning**: Apply power plan optimizations, visual effect tweaks, and file system improvements.
-*   **💻 Built-in Terminal**: View real-time logs of all operations directly within the app interface.
-
----
 
 ## ⚙️ Prerequisites
 
@@ -79,11 +75,9 @@ irm https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main/IlumnulOS.ps1 | ie
 1.  Navigate to the `IlumnulOS` directory.
 2.  Right-click on `IlumnulOS.ps1` and select **Run with PowerShell**.
 3.  **Grant Administrator Access** when prompted by UAC.
-4.  The GUI will launch. Use the sidebar to navigate between modules.
-5.  **One-Click Optimization**: For a quick boost, click the "ONE-CLICK OPTIMIZE" button on the Dashboard.
-6.  **Manual Tuning**: Navigate to specific tabs (Debloat, Gaming, AI) to toggle individual settings.
-
-> **Note**: All actions are logged in the **Terminal** tab. The app will automatically switch to this view when you initiate an operation.
+4.  The CLI menu will appear.
+5.  **Option 1**: Press `1` to run all optimizations at once.
+6.  **Option 2**: Press `2` to exit the tool.
 
 ---
 
