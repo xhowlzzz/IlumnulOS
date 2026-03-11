@@ -27,7 +27,7 @@
 
 IlumnulOS organizes its capabilities into intuitive modules:
 
-*   ** Debloat**: Remove pre-installed bloatware, Windows Store apps, OneDrive, and Cortana to free up resources.
+*   **Debloat**: Remove pre-installed bloatware, Windows Store apps, OneDrive, and Cortana to free up resources.
 *   **🎮 Gaming Mode**: Optimize system latency, enable Game Mode, adjust GPU priorities, and disable background services for maximum FPS.
 *   **🔒 Privacy Shield**: Disable telemetry, data collection, location tracking, and advertising IDs to reclaim your privacy.
 *   **🤖 AI Control Center**: **Exclusive Feature**. Completely disable and remove Windows Intelligence, Copilot, Recall (Snapshots), and Office AI integrations.
