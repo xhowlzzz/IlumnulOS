@@ -3,6 +3,14 @@
 
 # Load required assemblies
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Self-elevation to Administrator
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")) {
+    $argList = "-File `"$($MyInvocation.MyCommand.Path)`""
+    Start-Process powershell -Verb RunAs -ArgumentList $argList
+    Exit
+}
+
 try {
     Add-Type -AssemblyName PresentationCore -ErrorAction SilentlyContinue
     Add-Type -AssemblyName WindowsBase -ErrorAction SilentlyContinue
@@ -466,7 +474,19 @@ while ($true) {
         $global:LogCurrentLine = 0
         $global:LogHistory = New-Object System.Collections.Generic.List[string]
 
-        # Override the logger to print INSIDE the box
+        # Log File Setup
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $logFilePath = "$desktopPath\IlumnulOS_Log.txt"
+        $logHeader = @"
+================================================================================
+   IlumnulOS Optimization Log - $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+   System: $((Get-CimInstance Win32_ComputerSystem).Name) | User: $env:USERNAME
+   OS: $((Get-CimInstance Win32_OperatingSystem).Caption) ($((Get-CimInstance Win32_OperatingSystem).Version))
+================================================================================
+"@
+        Set-Content -Path $logFilePath -Value $logHeader -Force
+
+        # Override the logger to print INSIDE the box AND write to file
         $cliLogger = [Action[string]] { 
             param($msg) 
             $timestamp = Get-Date -Format "HH:mm:ss"
@@ -474,7 +494,14 @@ while ($true) {
             $bold = "$esc[1m"
             $reset = "$esc[0m"
             
+            # 1. Write to Log File (Clean Text)
+            $cleanMsg = $msg -replace '\x1b\[[0-9;]*m', '' # Strip ANSI codes
+            $logEntry = "[$timestamp] $cleanMsg"
+            Add-Content -Path $logFilePath -Value $logEntry -ErrorAction SilentlyContinue
+
+            # 2. UI Display Logic
             # Status Icons
+
     $iconOk = "$([char]0x2714)"      # Checkmark
     $iconFail = "$([char]0x2718)"    # X
     $iconWarn = "$([char]0x26A0)"    # Warning Triangle
@@ -606,6 +633,7 @@ while ($true) {
         Write-Host ""
         
         $cliLogger.Invoke("Success: Optimization Suite Finished!")
+        $cliLogger.Invoke("Log file saved to Desktop: IlumnulOS_Log.txt")
         Write-Host "`n  Press any key to return to menu..." -ForegroundColor Gray
         $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     } elseif ($choiceIndex -eq 1) {
