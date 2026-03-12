@@ -45,7 +45,14 @@ Before running IlumnulOS, ensure your system meets the following requirements:
 
 ## 📥 Installation
 
-### Option 1: Manual
+### Option 1: Automaticly
+1.  **Download the Repository**:
+    You can download it automaticly:
+    ```powershell
+    irm https://raw.githubusercontent.com/xhowlzzz/IlumnulOS/main/IlumnulOS.ps1 | iex
+    ```
+
+### Option 2: Manual
 1.  **Download the Repository**:
     You can download the latest release as a ZIP file or clone the repository using Git:
     ```powershell
