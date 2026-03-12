@@ -8,6 +8,12 @@ function Invoke-SystemOptimization {
     function Log($msg) { if ($Logger) { $Logger.Invoke($msg) } else { Write-Host $msg } }
 
     Log "Starting System Optimizations..."
+    
+    # Ensure HKU drive is mapped
+    if (!(Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+        New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
+    }
+
     $UsePowerPlan = if ($Options.ContainsKey("PowerPlan")) { [bool]$Options.PowerPlan } else { $true }
     $DisableHibernation = if ($Options.ContainsKey("DisableHibernation")) { [bool]$Options.DisableHibernation } else { $true }
     $DisableSearchIndexing = if ($Options.ContainsKey("DisableSearchIndexing")) { [bool]$Options.DisableSearchIndexing } else { $false }
@@ -600,21 +606,23 @@ function Invoke-SystemOptimization {
     # Button 17: AutoPlay
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers" "DisableAutoplay" 1
 
-    # Button 18: PowerCfg (High Performance)
+    # Button 18: PowerCfg (Ultimate Performance)
     if ($UsePowerPlan) {
-        Log "Setting High Performance Power Plan..."
+        Log "Setting Ultimate Performance Power Plan..."
         try {
-            # Check if High Performance plan exists
-            $plans = & powercfg /list
-            if ($plans -match "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c") {
-                & powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
+            # Duplicate the Ultimate Performance scheme (e9a42b02-d5df-448d-aa00-03f14749eb61)
+            $ultimateScheme = & powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1
+            if ($ultimateScheme -match '([a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12})') {
+                $schemeGuid = $matches[0]
+                & powercfg -setactive $schemeGuid | Out-Null
+                Log " [OK] Ultimate Performance Plan Activated ($schemeGuid)"
             } else {
-                # Fallback: Duplicate and set if missing
-                & powercfg /duplicatescheme 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
-                & powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
+                # Fallback to High Performance if Ultimate is not available
+                & powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
+                Log " [INFO] Fallback to High Performance Plan."
             }
         } catch {
-            Log "Failed to set High Performance power plan: $($_.Exception.Message)"
+            Log "Failed to set Power Plan: $($_.Exception.Message)"
         }
     }
 
@@ -741,6 +749,64 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "DisableEdgeDesktopShortcutCreation" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "DisableNotificationCenter" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "HidePeopleBar" 1
+
+    # NumLock on Startup
+    Set-Reg "HKU:\.Default\Control Panel\Keyboard" "InitialKeyboardIndicators" 2
+    Set-Reg "HKCU:\Control Panel\Keyboard" "InitialKeyboardIndicators" 2
+
+    # Detailed BSoD
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl" "DisplayParameters" 1
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl" "DisableEmoticon" 1
+
+    # Modern Standby Fix (Disable Network in Standby)
+    Set-Reg "HKCU:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9" "ACSettingIndex" 0
+
+    # S3 Sleep (Disable Modern Standby)
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "PlatformAoAcOverride" 0
+
+    # Disable Explorer Automatic Folder Discovery
+    Log "Disabling Explorer Folder Discovery..."
+    try {
+        Remove-Item -Path "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\BagMRU" -Recurse -Force -ErrorAction SilentlyContinue
+        $allFolders = "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags\AllFolders\Shell"
+        if (!(Test-Path $allFolders)) { New-Item -Path $allFolders -Force | Out-Null }
+        Set-ItemProperty -Path $allFolders -Name "FolderType" -Value "NotSpecified" -PropertyType String -Force
+    } catch {}
+
+    # Set Services to Manual (Optimization)
+    Log "Setting Services to Manual (Optimization)..."
+    $manualServices = @(
+        "ALG", "AppMgmt", "AppReadiness", "Appinfo", "AxInstSV", "BDESVC", "BTAGService", 
+        "CDPSvc", "COMSysApp", "CertPropSvc", "CscService", "DevQueryBroker", "DeviceAssociationService", 
+        "DeviceInstall", "DisplayEnhancementService", "EFS", "EapHost", "FDResPub", "FrameServer", 
+        "FrameServerMonitor", "GraphicsPerfSvc", "HvHost", "IKEEXT", "InstallService", "InventorySvc", 
+        "IpxlatCfgSvc", "KtmRm", "LicenseManager", "LxpSvc", "MSDTC", "MSiSCSI", "McpManagementService", 
+        "MicrosoftEdgeElevationService", "NaturalAuthentication", "NcaSvc", "NcbService", "NcdAutoSetup", 
+        "NetSetupSvc", "Netman", "NlaSvc", "PcaSvc", "PeerDistSvc", "PerfHost", "PhoneSvc", "PlugPlay", 
+        "PolicyAgent", "PrintNotify", "PushToInstall", "QWAVE", "RasAuto", "RasMan", "RetailDemo", 
+        "RmSvc", "RpcLocator", "SCPolicySvc", "SCardSvr", "SDRSVC", "SEMgrSvc", "SNMPTRAP", "SNMPTrap", 
+        "SSDPSRV", "ScDeviceEnum", "SensorDataService", "SensorService", "SensrSvc", "SessionEnv", 
+        "SharedAccess", "SmsRouter", "SstpSvc", "StiSvc", "StorSvc", "TapiSrv", "TermService", 
+        "TieringEngineService", "TokenBroker", "TroubleshootingSvc", "TrustedInstaller", "UmRdpService", 
+        "UsoSvc", "VSS", "VaultSvc", "W32Time", "WEPHOSTSVC", "WFDSConMgrSvc", "WMPNetworkSvc", 
+        "WManSvc", "WPDBusEnum", "WSAIFabricSvc", "WalletService", "WarpJITSvc", "WbioSrvc", 
+        "WdiServiceHost", "WdiSystemHost", "WebClient", "Wecsvc", "WerSvc", "WiaRpc", "WinRM", 
+        "WpcMonSvc", "WpnService", "XblAuthManager", "XblGameSave", "XboxGipSvc", "XboxNetApiSvc", 
+        "autotimesvc", "bthserv", "camsvc", "cloudidsvc", "dcsvc", "defragsvc", "diagsvc", 
+        "dmwappushservice", "dot3svc", "edgeupdate", "edgeupdatem", "fdPHost", "fhsvc", "hidserv", 
+        "icssvc", "lfsvc", "lltdsvc", "lmhosts", "netprofm", "perceptionsimulation", "pla", "seclogon", 
+        "smphost", "svsvc", "swprv", "upnphost", "vds", "vmicguestinterface", "vmicheartbeat", 
+        "vmickvpexchange", "vmicrdv", "vmicshutdown", "vmictimesync", "vmicvmsession", "vmicvss", 
+        "wbengine", "wcncsvc", "webthreatdefsvc", "wercplsupport", "wisvc", "wlidsvc", "wlpasvc", 
+        "wmiApSrv", "workfolderssvc", "wuauserv"
+    )
+    foreach ($svc in $manualServices) {
+        if (Get-Service $svc -ErrorAction SilentlyContinue) {
+            Set-Service -Name $svc -StartupType Manual -ErrorAction SilentlyContinue
+        }
+    }
+
     if ($DisableSearchIndexing) {
         Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowIndexingEncryptedStoresOrItems" 0
         Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "DisableBackoff" 1
@@ -828,6 +894,96 @@ function Invoke-SystemOptimization {
             Log "Optional feature enablement skipped: $_"
         }
     }
+
+    # --- GTweak Integration (System Performance) ---
+    Log "Applying GTweak Performance settings..."
+
+    # Disable Sticky Keys & Keyboard Response
+    Set-Reg "HKCU:\Control Panel\Accessibility\StickyKeys" "Flags" "506" "String"
+    Set-Reg "HKCU:\Control Panel\Accessibility\Keyboard Response" "Flags" "122" "String"
+
+    # Disable Security Center Notifications
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows Defender Security Center\Notifications" "DisableNotifications" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications" "DisableNotifications" 1
+
+    # Auto End Tasks (Faster Shutdown)
+    Set-Reg "HKCU:\Control Panel\Desktop" "AutoEndTasks" "1"
+
+    # Disable Explorer Startup Delay
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" "Startupdelayinmsec" 0
+
+    # Disable Background Apps (Global Toggle)
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" "GlobalUserDisabled" 1
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" "BackgroundAppGlobalToggle" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" "LetAppsRunInBackground" 2
+
+    # Disable Windows Store Auto Download
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore" "AutoDownload" 2
+
+    # --- optimizerNXT Integration (Performance & Latency) ---
+    Log "Applying optimizerNXT Performance tweaks..."
+
+    # Multimedia System Profile (Gaming/Low Latency)
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NoLazyMode" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "AlwaysOn" 1
+    
+    # Multimedia Task Priorities (Games)
+    $mmGames = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games"
+    Set-Reg $mmGames "GPU Priority" 8
+    Set-Reg $mmGames "Priority" 6
+    Set-Reg $mmGames "Scheduling Category" "High" "String"
+    Set-Reg $mmGames "SFIO Priority" "High" "String"
+
+    # Network Throttling (Disable)
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF
+
+    # Service & App Timeouts (Faster Kill)
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control" "WaitToKillServiceTimeout" "2000" "String"
+    Set-Reg "HKCU:\Control Panel\Desktop" "HungAppTimeout" "1000" "String"
+    Set-Reg "HKCU:\Control Panel\Desktop" "WaitToKillAppTimeout" "2000" "String"
+    Set-Reg "HKCU:\Control Panel\Desktop" "LowLevelHooksTimeout" "1000" "String"
+    Set-Reg "HKCU:\Control Panel\Desktop" "MenuShowDelay" 0
+    Set-Reg "HKCU:\Control Panel\Mouse" "MouseHoverTime" 0
+
+    # Crash Dump (Mini Dump)
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl" "CrashDumpEnabled" 3
+
+    # NTFS & Explorer Tweaks
+    & fsutil behavior set disablelastaccess 1 2>&1 | Out-Null
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoLowDiskSpaceChecks" 1
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "LinkResolveIgnoreLinkInfo" 1
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoResolveSearch" 1
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoResolveTrack" 1
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoInternetOpenWith" 1
+
+    # Disable Remote Assistance
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Remote Assistance" "fAllowToGetHelp" 0
+
+    # Media Foundation Frame Server (Fix for some games/apps)
+    Set-Reg "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows Media Foundation" "EnableFrameServerMode" 0
+
+    # Windows 11 UI Tweaks (optimizerNXT)
+    # Align Taskbar Left
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarAl" 0
+    # Disable Snap Assist Flyout
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "EnableSnapAssistFlyout" 0
+    # Classic Context Menu
+    Set-Reg "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" "" "" "String"
+    # Hide Meet Now
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "HideSCAMeetNow" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "HideSCAMeetNow" 1
+    # Disable Stickers
+    try { Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Stickers" -Name "EnableStickers" -ErrorAction SilentlyContinue } catch {}
+
+    # SmartScreen & Attachments (optimizerNXT)
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments" "SaveZoneInformation" 1
+    Set-Reg "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments" "ScanWithAntiVirus" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "ShellSmartScreenLevel" "Warn" "String"
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "EnableSmartScreen" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer" "SmartScreenEnabled" "Off" "String"
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Internet Explorer\PhishingFilter" "EnabledV9" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\AppHost" "PreventOverride" 0
 
     Log "System Optimizations Applied."
 }

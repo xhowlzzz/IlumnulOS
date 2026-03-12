@@ -241,7 +241,30 @@ function Invoke-GamingOptimization {
         Set-Reg "HKCU:\SOFTWARE\Microsoft\GameBar" "AutoGameModeEnabled" 1
     }
     if ($DisableGameBar) {
+        Log "Disabling Game Bar & DVR (optimizerNXT)..."
         Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR" "AppCaptureEnabled" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR" "AudioCaptureEnabled" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR" "CursorCaptureEnabled" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\GameBar" "UseNexusForGameBarEnabled" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\GameBar" "ShowStartupPanel" 0
+        Set-Reg "HKCU:\System\GameConfigStore" "GameDVR_Enabled" 0
+        Set-Reg "HKCU:\System\GameConfigStore" "GameDVR_FSEBehaviorMode" 2
+        Set-Reg "HKLM:\Software\Policies\Microsoft\Windows\GameDVR" "AllowGameDVR" 0
+        
+        # Stop & Disable Xbox Services (that aren't needed for login)
+        $xboxServices = @("XboxNetApiSvc", "XblAuthManager", "XblGameSave", "XboxGipSvc", "xbgm")
+        foreach ($svc in $xboxServices) {
+            try {
+                Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+                Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+            } catch {}
+        }
+        
+        # Disable Scheduled Tasks
+        try {
+            Unregister-ScheduledTask -TaskName "\Microsoft\XblGameSave\XblGameSaveTask" -Confirm:$false -ErrorAction SilentlyContinue
+            Unregister-ScheduledTask -TaskName "\Microsoft\XblGameSave\XblGameSaveTaskLogon" -Confirm:$false -ErrorAction SilentlyContinue
+        } catch {}
     }
 
     # MPO (Multiplane Overlay) - Often causes flickering, disabling can help stability
@@ -369,6 +392,59 @@ function Invoke-GamingOptimization {
         Set-Reg $gfxDrivers "TdrLimitCount" 0
         Set-Reg $gfxDrivers "TdrLimitTime" 0
         Set-Reg $gfxDrivers "TdrTestMode" 0
+    }
+
+    # AMD Specific Tweaks
+    if ($videoControllers.Name -match "AMD" -or $videoControllers.Name -match "Radeon") {
+        Log "Applying AMD Specific Tweaks..."
+        foreach ($gpu in $videoControllers) {
+            if ($gpu.Name -match "AMD" -or $gpu.Name -match "Radeon") {
+                $pnpId = $gpu.PNPDeviceID
+                $driverKey = Get-ItemProperty "HKLM:\SYSTEM\ControlSet001\Enum\$pnpId" -Name "Driver"
+                if ($driverKey) {
+                    $classId = $driverKey.Driver
+                    $amdKeyBase = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$classId"
+                    
+                    Log "Targeting AMD GPU at $amdKeyBase"
+
+                    # Refresh Rate & Overlay
+                    Set-Reg $amdKeyBase "3D_Refresh_Rate_Override_DEF" 0
+                    Set-Reg $amdKeyBase "AllowSnapshot" 0
+                    Set-Reg $amdKeyBase "AllowRSOverlay" "false" "String"
+                    Set-Reg $amdKeyBase "AllowSkins" "false" "String"
+                    Set-Reg $amdKeyBase "AllowSubscription" 0
+                    Set-Reg $amdKeyBase "AutoColorDepthReduction_NA" 0
+
+                    # Anti-Aliasing & Filtering
+                    Set-Reg $amdKeyBase "AAF_NA" 0
+                    Set-Reg $amdKeyBase "AntiAlias_NA" "0" "String"
+                    Set-Reg $amdKeyBase "ASTT_NA" "0" "String"
+                    Set-Reg $amdKeyBase "AreaAniso_NA" "0" "String"
+
+                    # Power Gating & ULPS (Performance)
+                    Set-Reg $amdKeyBase "DisableSAMUPowerGating" 1
+                    Set-Reg $amdKeyBase "DisableUVDPowerGatingDynamic" 1
+                    Set-Reg $amdKeyBase "DisableVCEPowerGating" 1
+                    Set-Reg $amdKeyBase "DisablePowerGating" 1
+                    Set-Reg $amdKeyBase "DisableDrmdmaPowerGating" 1
+                    Set-Reg $amdKeyBase "EnableVceSwClockGating" 0
+                    Set-Reg $amdKeyBase "EnableUvdClockGating" 0
+                    Set-Reg $amdKeyBase "EnableAspmL0s" 0
+                    Set-Reg $amdKeyBase "EnableAspmL1" 0
+                    Set-Reg $amdKeyBase "EnableUlps" 0
+                    Set-Reg $amdKeyBase "EnableUlps_NA" "0" "String"
+                    Set-Reg $amdKeyBase "PP_SclkDeepSleepDisable" 1
+
+                    # Features
+                    Set-Reg $amdKeyBase "KMD_DeLagEnabled" 1
+                    Set-Reg $amdKeyBase "KMD_FRTEnabled" 0
+                    Set-Reg $amdKeyBase "DisableDMACopy" 1
+                    Set-Reg $amdKeyBase "DisableBlockWrite" 0
+                    Set-Reg $amdKeyBase "StutterMode" 0
+                    Set-Reg $amdKeyBase "Adaptive De-interlacing" 1
+                }
+            }
+        }
     }
 
     # =========================================================================

@@ -232,10 +232,14 @@ function Remove-Bloatware {
     # Enable End Task in Taskbar
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings" "TaskbarEndTask" 1
 
-    # Disable Share App Experiences
+    # Disable Share App Experiences & Drag Tray
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\CDP" "RomeSdkChannelUserAuthzPolicy" 0
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\CDP" "NearShareChannelUserAuthzPolicy" 0
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\CDP" "CdpSessionUserAuthzPolicy" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\CDP" "DragTrayEnabled" 0
+
+    # Disable Settings Ads (365/Home)
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableConsumerAccountStateContent" 1
 
     # Set Wallpaper to Solid Color
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers" "BackgroundType" 1
@@ -645,12 +649,15 @@ function Remove-Bloatware {
     # Disable Home Page in Settings
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "SettingsPageVisibility" "hide:home;" "String"
 
-    # Show hidden icon menu arrow (EnableAutoTray=1 hides inactive icons into the menu)
-    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" "EnableAutoTray" 1
-    Set-Reg "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify" "SystemTrayChevronVisibility" 1
+    # Show hidden icon menu arrow (EnableAutoTray=0 shows all icons)
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" "EnableAutoTray" 0
+    Set-Reg "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify" "SystemTrayChevronVisibility" 0
 
     # Disable Track my Device
     Set-Reg "HKLM:\SOFTWARE\Microsoft\MdmCommon\SettingValues" "LocationSyncEnabled" 0
+
+    # Turn On HAGS (Hardware Accelerated GPU Scheduling) - User Request
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 2
 
     # Disable Personalized Offers
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Privacy" "TailoredExperiencesWithDiagnosticDataEnabled" 0
@@ -691,6 +698,16 @@ function Remove-Bloatware {
     # Disable Shared Experiences
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CDP" "CdpSessionUserAuthzPolicy" 0
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CDP" "NearShareChannelUserAuthzPolicy" 0
+
+    # Disable Cross Device Resume
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration" "IsResumeAllowed" 0
+
+    # Disable New Outlook
+    Log "Disabling New Outlook..."
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\Office\16.0\Outlook\Preferences" "UseNewOutlook" 0
+    Set-Reg "HKCU:\Software\Microsoft\Office\16.0\Outlook\Options\General" "HideNewOutlookToggle" 1
+    Set-Reg "HKCU:\Software\Policies\Microsoft\Office\16.0\Outlook\Options\General" "DoNewOutlookAutoMigration" 0
+    Set-Reg "HKCU:\Software\Policies\Microsoft\Office\16.0\Outlook\Preferences" "NewOutlookMigrationUserSetting" 0
 
     # Stop Explorer from Showing Frequent/Recent Files
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer" "ShowFrequent" 0
@@ -990,14 +1007,29 @@ function Remove-Bloatware {
     if ($EnableRemoveAppx) {
         Log "Removing Unnecessary Appx Packages..."
         $bloatPkgs = @(
-            "*3DBuilder*", "*bing*", "*bingfinance*", "*bingsports*", "*BingWeather*", "*CommsPhone*",
-            "*Drawboard PDF*", "*Facebook*", "*Getstarted*", "*Microsoft.Messaging*", "*MicrosoftOfficeHub*",
-            "*Office.OneNote*", "*OneNote*", "*people*", "*SkypeApp*", "*solit*", "*Sway*", "*Twitter*",
-            "*WindowsAlarms*", "*WindowsPhone*", "*WindowsMaps*", "*WindowsFeedbackHub*", "*WindowsSoundRecorder*",
-            "*windowscommunicationsapps*", "*zune*",
-            # User Added
-            "*Clipchamp*", "*DevHome*", "*PowerAutomate*", "*StickyNotes*", "*XboxApp*"
+            # Microsoft / Windows Built-in
+            "*3DBuilder*", "*549981C3F5F10*", "*BingFinance*", "*BingFoodAndDrink*", "*BingHealthAndFitness*", 
+            "*BingNews*", "*BingSports*", "*BingTranslator*", "*BingTravel*", "*BingWeather*", "*Clipchamp*", 
+            "*Copilot*", "*Windows.AIHub*", "*PCManager*", "*Getstarted*", "*Messaging*", "*Microsoft3DViewer*", 
+            "*MicrosoftJournal*", "*MicrosoftOfficeHub*", "*MicrosoftPowerBIForWindows*", "*MicrosoftSolitaireCollection*", 
+            "*MicrosoftStickyNotes*", "*MixedReality.Portal*", "*NetworkSpeedTest*", "*Microsoft.News*", "*Office.OneNote*", 
+            "*Office.Sway*", "*OneConnect*", "*Print3D*", "*PowerAutomateDesktop*", "*SkypeApp*", "*Todos*", 
+            "*Windows.DevHome*", "*WindowsAlarms*", "*WindowsFeedbackHub*", "*WindowsMaps*", "*WindowsSoundRecorder*", 
+            "*XboxApp*", "*ZuneVideo*", "*MicrosoftFamily*", "*QuickAssist*", "*MicrosoftTeams*", "*MSTeams*", 
+            "*People*", "*WindowsPhone*", "*windowscommunicationsapps*", "*zune*", "*StartExperiencesApp*",
+
+            # Third Party / Pre-installed
+            "*ACGMediaPlayer*", "*ActiproSoftwareLLC*", "*AdobePhotoshopExpress*", "*Amazon*", "*PrimeVideo*", 
+            "*Asphalt8Airborne*", "*AutodeskSketchBook*", "*CaesarsSlotsFreeCasino*", "*COOKINGFEVER*", 
+            "*CyberLinkMediaSuiteEssentials*", "*DisneyMagicKingdoms*", "*Disney*", "*DrawboardPDF*", 
+            "*Duolingo*", "*EclipseManager*", "*Facebook*", "*FarmVille2CountryEscape*", "*fitbit*", 
+            "*Flipboard*", "*HiddenCity*", "*HULUPLUS*", "*iHeartRadio*", "*Instagram*", "*BubbleWitch3Saga*", 
+            "*CandyCrushSaga*", "*CandyCrushSodaSaga*", "*LinkedIn*", "*MarchofEmpires*", "*Netflix*", 
+            "*NYTCrossword*", "*OneCalendar*", "*Pandora*", "*PhototasticCollage*", "*PicsArt*", "*Plex*", 
+            "*PolarrPhotoEditor*", "*Royal Revolt*", "*Shazam*", "*LiveWallpaper*", "*SlingTV*", "*Spotify*", 
+            "*TikTok*", "*TuneInRadio*", "*Twitter*", "*Viber*", "*WinZipUniversal*", "*Wunderlist*", "*XING*"
         )
+
         $count = 0
         foreach ($pkg in $bloatPkgs) {
             $count++
@@ -1005,7 +1037,11 @@ function Remove-Bloatware {
                 Write-ProgressBar -Current $count -Total $bloatPkgs.Count -Status "Removing $pkg"
             }
             try {
-                Get-AppxPackage -AllUsers $pkg | Remove-AppxPackage -ErrorAction SilentlyContinue | Out-Null
+                # Remove installed package for all users
+                Get-AppxPackage -Name $pkg -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Out-Null
+                
+                # Remove provisioned package (prevent reinstall for new users)
+                Get-AppxProvisionedPackage -Online | Where-Object { $_.PackageName -like "$pkg" } | Remove-AppxProvisionedPackage -Online -AllUsers -ErrorAction SilentlyContinue | Out-Null
             } catch { }
         }
     }
@@ -1050,22 +1086,56 @@ function Remove-Bloatware {
     # Edge Removal (Aggressive - Use Caution)
     Log "Removing Microsoft Edge..."
     try {
-        # Fix: Proper syntax for environment variable with parentheses
-        $progFilesX86 = ${env:ProgramFiles(x86)}
-        $edgeSetupPattern = Join-Path $progFilesX86 "Microsoft\Edge\Application\*\Installer\setup.exe"
-        $edgeInstaller = Get-Item $edgeSetupPattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        # 1. Allow Uninstall via Registry Trick
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\EdgeUpdateDev" "" "" "String"
         
-        if ($edgeInstaller) {
-            # Fix: Quote file path and handle spaces
-            Start-Process -FilePath "`"$($edgeInstaller.FullName)`"" -ArgumentList "--uninstall --system-level --verbose-logging --force-uninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue
-            Log "Edge uninstalled via setup.exe"
+        # 2. Create Stub to trick Windows
+        $edgeStub = "$env:SystemRoot\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe"
+        if (-not (Test-Path $edgeStub)) { New-Item -Path $edgeStub -ItemType Directory -Force | Out-Null }
+        if (-not (Test-Path "$edgeStub\MicrosoftEdge.exe")) { New-Item -Path "$edgeStub\MicrosoftEdge.exe" -ItemType File -Force | Out-Null }
+
+        # 3. Find Uninstaller in Registry
+        $uninstallKey = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge" -ErrorAction SilentlyContinue
+        if ($uninstallKey -and $uninstallKey.UninstallString) {
+             $uninstallString = $uninstallKey.UninstallString + ' --force-uninstall'
+             Log "Running Edge Uninstaller..."
+             Start-Process cmd.exe -ArgumentList "/c $uninstallString" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
+        } else {
+             # Fallback to file search if registry key missing
+             $progFilesX86 = ${env:ProgramFiles(x86)}
+             $edgeSetupPattern = Join-Path $progFilesX86 "Microsoft\Edge\Application\*\Installer\setup.exe"
+             $edgeInstaller = Get-Item $edgeSetupPattern -ErrorAction SilentlyContinue | Select-Object -First 1
+             
+             if ($edgeInstaller) {
+                 Start-Process -FilePath "`"$($edgeInstaller.FullName)`"" -ArgumentList "--uninstall --system-level --verbose-logging --force-uninstall" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+                 Log "Edge uninstalled via setup.exe (Fallback)"
+             }
         }
         
-        # Cleanup Edge User Data
-        $edgeUserData = "$env:LOCALAPPDATA\Microsoft\Edge"
-        if (Test-Path $edgeUserData) {
-            Remove-Item -Path $edgeUserData -Recurse -Force -ErrorAction SilentlyContinue
+        # 4. Cleanup Edge User Data & Shortcuts
+        $edgePaths = @(
+            "$env:LOCALAPPDATA\Microsoft\Edge",
+            "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Edge.lnk",
+            "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\Microsoft Edge.lnk",
+            "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Microsoft Edge.lnk",
+            "$env:PUBLIC\Desktop\Microsoft Edge.lnk",
+            "$env:USERPROFILE\Desktop\Microsoft Edge.lnk",
+            "$edgeStub"
+        )
+        foreach ($path in $edgePaths) {
+            if (Test-Path $path) {
+                Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
+        
+        # 5. Registry Cleanup
+        try {
+            Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MicrosoftEdgeAutoLaunch_*" -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Microsoft Edge Update" -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" -Name "MicrosoftEdgeAutoLaunch_*" -ErrorAction SilentlyContinue
+        } catch {}
+
+        Log "Edge removal process completed."
     } catch {
         Log "Edge removal failed or skipped: $($_.Exception.Message)"
     }
@@ -1240,6 +1310,142 @@ function Remove-Bloatware {
             Log "Brave debloat skipped for ${bravePrefPath}: $_"
         }
     }
+
+    # Block Razer Software Installs
+    Log "Blocking Razer Software..."
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" "SearchOrderConfig" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Installer" "DisableCoInstallers" 1
+    try {
+        $RazerPath = "C:\Windows\Installer\Razer"
+        if (Test-Path $RazerPath) { Remove-Item $RazerPath -Recurse -Force -ErrorAction SilentlyContinue }
+        New-Item -Path $RazerPath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
+        $acl = Get-Acl $RazerPath
+        $denyRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "Write", "Deny")
+        $acl.AddAccessRule($denyRule)
+        Set-Acl -Path $RazerPath -AclObject $acl
+    } catch {
+        Log "Failed to block Razer path: $_"
+    }
+
+    # Adobe Network Block
+    Log "Blocking Adobe Telemetry (Hosts)..."
+    try {
+        $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
+        $adobeHostsUrl = "https://github.com/Ruddernation-Designs/Adobe-URL-Block-List/raw/refs/heads/master/hosts"
+        $adobeBlockList = Invoke-WebRequest -Uri $adobeHostsUrl -UseBasicParsing -ErrorAction SilentlyContinue
+        if ($adobeBlockList.Content) {
+            Add-Content -Path $hostsPath -Value "`n# Adobe Block List" -ErrorAction SilentlyContinue
+            Add-Content -Path $hostsPath -Value $adobeBlockList.Content -ErrorAction SilentlyContinue
+            Log "Added Adobe Block List to Hosts file."
+        }
+    } catch {
+        Log "Failed to apply Adobe Block List: $_"
+    }
+
+    Log "Debloat tweaks applied."
+
+    # --- GTweak Integration (Confidentiality) ---
+    Log "Applying GTweak Confidentiality settings..."
+
+    # Disable Advertising ID
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" 0
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Bluetooth" "AllowAdvertising" 0
+
+    # Disable Settings Sync (Privacy)
+    $syncGroups = @(
+        "Accessibility", "BrowserSettings", "Credentials", "Language", "Personalization", "Windows"
+    )
+    foreach ($group in $syncGroups) {
+        Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\SettingSync\Groups\$group" "Enabled" 0
+    }
+
+    # Disable Handwriting Data Sharing
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC" "PreventHandwritingDataSharing" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports" "PreventHandwritingErrorReports" 1
+    Set-Reg "HKCU:\Software\Microsoft\Input\TIPC" "Enabled" 0
+
+    # Disable Location & Sensors
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocation" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableLocationScripting" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" "DisableWindowsLocationProvider" 1
+
+    # Disable Feedback & Speech Models
+    Set-Reg "HKCU:\Software\Microsoft\Siuf\Rules" "NumberOfSIUFInPeriod" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "DoNotShowFeedbackNotifications" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Speech" "AllowSpeechModelUpdate" 0
+
+    # Disable Map Auto-Update
+    Set-Reg "HKLM:\SYSTEM\Maps" "AutoUpdateEnabled" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Maps" "AutoDownloadAndUpdateMapData" 0
+    Set-Reg "HKLM:\SYSTEM\Maps" "MapUpdate" 0
+
+    # Disable Inventory & Telemetry (Extended)
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat" "DisableInventory" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat" "AITEnable" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowDeviceNameInTelemetry" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "Start_TrackProgs" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows" "CEIPEnable" 0
+
+    # Disable Experimentation
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\System" "AllowExperimentation" 0
+
+    # --- optimizerNXT Integration (Telemetry & Privacy) ---
+    Log "Applying optimizerNXT Privacy tweaks..."
+
+    # Chrome Telemetry
+    Set-Reg "HKLM:\SOFTWARE\Policies\Google\Chrome" "MetricsReportingEnabled" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Google\Chrome" "ChromeCleanupReportingEnabled" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Google\Chrome" "UserFeedbackAllowed" 0
+
+    # Firefox Telemetry
+    Set-Reg "HKLM:\SOFTWARE\Policies\Mozilla\Firefox" "DisableTelemetry" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Mozilla\Firefox" "DisableDefaultBrowserAgent" 1
+    try {
+        Unregister-ScheduledTask -TaskName "\Mozilla\Firefox Default Browser Agent*" -Confirm:$false -ErrorAction SilentlyContinue
+    } catch {}
+
+    # Office Telemetry & Logging
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\Office\Common\ClientTelemetry" "DisableTelemetry" 1
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\Office\16.0\Common\ClientTelemetry" "DisableTelemetry" 1
+    Set-Reg "HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\OSM\PreventedSolutionTypes" "agave" 1
+    Set-Reg "HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\OSM\PreventedSolutionTypes" "appaddins" 1
+    Set-Reg "HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\OSM\PreventedSolutionTypes" "comaddins" 1
+    Set-Reg "HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\OSM\PreventedSolutionTypes" "documentfiles" 1
+    Set-Reg "HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\OSM\PreventedSolutionTypes" "templatefiles" 1
+
+    # Visual Studio Telemetry
+    Set-Reg "HKCU:\Software\Microsoft\VisualStudio\Telemetry" "TurnOffSwitch" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback" "DisableFeedbackDialog" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\SQM" "OptIn" 0
+
+    # Enhanced Privacy (Windows)
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "DoNotShowFeedbackNotifications" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "DisableAutomaticRestartSignOn" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo" "DisabledByGroupPolicy" 1
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC" "PreventHandwritingDataSharing" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\TextInput" "AllowLinguisticDataCollection" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\InputPersonalization" "AllowInputPersonalization" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings" "SafeSearchMode" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Biometrics" "Enabled" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Connect" "AllowProjectionToPC" 0
+
+    # Windows Ink & Tablet (optimizerNXT)
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace" "AllowWindowsInkWorkspace" 0
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace" "AllowSuggestedAppsInWindowsInkWorkspace" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" "EnableInkingWithTouch" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" "EnableAutocorrection" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" "EnableSpellchecking" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" "EnableDoubleTapSpace" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" "EnablePredictionSpaceInsertion" 0
+    Set-Reg "HKCU:\SOFTWARE\Microsoft\TabletTip\1.7" "EnableTextPrediction" 0
+    Set-Reg "HKCU:\Software\Microsoft\Input\Settings" "InsightsEnabled" 0
+
+    # OneDrive Deep Clean (optimizerNXT)
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive" "DisableFileSyncNGSC" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\OneDrive" "PreventNetworkTrafficPreUserSignIn" 1
+    try {
+        Unregister-ScheduledTask -TaskName "OneDrive Standalone Update Task*" -Confirm:$false -ErrorAction SilentlyContinue
+    } catch {}
 
     Log "Debloat tweaks applied."
 }

@@ -52,6 +52,29 @@ function Remove-WindowsAI {
     $DisableOfficeAI = if ($Options.ContainsKey("DisableOfficeAI")) { [bool]$Options.DisableOfficeAI } else { $true }
 
     # =========================================================================
+    # 0. PRIVILEGE ESCALATION (TrustedInstaller Trick)
+    # =========================================================================
+    # Note: We incorporate the "TrustedInstaller" logic for locked packages
+    function Run-AsTrusted {
+        param([string]$Command)
+        Log "Attempting to run command as TrustedInstaller..."
+        # Simplified TI logic for module integration
+        try {
+            Stop-Service -Name TrustedInstaller -Force -ErrorAction SilentlyContinue
+            $psexe = 'PowerShell.exe'
+            $bytes = [System.Text.Encoding]::Unicode.GetBytes($Command)
+            $base64 = [Convert]::ToBase64String($bytes)
+            sc.exe config TrustedInstaller binPath= "cmd.exe /c $psexe -encodedcommand $base64" | Out-Null
+            sc.exe start TrustedInstaller | Out-Null
+            Start-Sleep -Seconds 2
+            # Revert TI path
+            sc.exe config TrustedInstaller binpath= "C:\Windows\servicing\TrustedInstaller.exe" | Out-Null
+        } catch {
+            Log "TrustedInstaller escalation failed: $($_.Exception.Message)"
+        }
+    }
+
+    # =========================================================================
     # 1. REGISTRY OPERATIONS (Block AI Features)
     # =========================================================================
     Log "--- Phase 1: Registry Operations ---"
@@ -65,6 +88,41 @@ function Remove-WindowsAI {
     }
     if ($DisableCopilot) {
         Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" 1
+        
+        # Additional Copilot Blockers (winutil)
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\Shell\Copilot" "IsCopilotAvailable" 0
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\Shell\Copilot" "CopilotDisabledReason" "IsEnabledForGeographicRegionFailed" "String"
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsCopilot" "AllowCopilotRuntime" 0
+        Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked" "{CB3B0003-8088-4EDE-8769-8B354AB2FF8C}" "" "String"
+
+        # --- optimizerNXT Integration (AI & Search) ---
+        Log "Applying optimizerNXT AI & Search tweaks..."
+        
+        # Disable AI Data Analysis
+        Set-Reg "HKCU:\Software\Policies\Microsoft\Windows\WindowsAI" "DisableAIDataAnalysis" 1
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "DisableAIDataAnalysis" 1
+        
+        # Remove Copilot Button
+        Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0
+        
+        # Edge AI & Campaigns
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "DefaultBrowserSettingsCampaignEnabled" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "ComposeInlineEnabled" 0
+        
+        # Disable Web Search & Cortana
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCortana" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "DisableWebSearch" 1
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "ConnectedSearchUseWeb" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "ConnectedSearchUseWebOverMeteredConnections" 0
+        Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowCloudSearch" 0
+        
+        # Disable Search History & Bing
+        Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings" "IsDeviceSearchHistoryEnabled" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search" "HistoryViewEnabled" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search" "DeviceHistoryEnabled" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search" "AllowSearchToUseLocation" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search" "BingSearchEnabled" 0
+        Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search" "CortanaConsent" 0
     }
     
     # User Preferences
@@ -154,25 +212,89 @@ function Remove-WindowsAI {
     $aiPackages = @(
         "*Microsoft.Windows.Search*",
         "*Microsoft.Windows.PeopleExperienceHost*",
-        "*Microsoft.Windows.ContentDeliveryManager*"
+        "*Microsoft.Windows.ContentDeliveryManager*",
+        "*MicrosoftWindows.Client.AIX*",
+        "*Microsoft.Edge.GameAssist*",
+        "*Microsoft.Office.ActionsServer*",
+        "*aimgr*",
+        "*Microsoft.WritingAssistant*",
+        "*MicrosoftWindows.*.Voiess*",
+        "*MicrosoftWindows.*.Speion*",
+        "*MicrosoftWindows.*.Livtop*",
+        "*MicrosoftWindows.*.InpApp*",
+        "*MicrosoftWindows.*.Filons*",
+        "*WindowsWorkload.Data.Analysis.Stx.*",
+        "*WindowsWorkload.Manager.*",
+        "*WindowsWorkload.PSOnnxRuntime.Stx.*",
+        "*WindowsWorkload.PSTokenizer.Stx.*",
+        "*WindowsWorkload.QueryBlockList.*",
+        "*WindowsWorkload.QueryProcessor.Data.*",
+        "*WindowsWorkload.QueryProcessor.Stx.*",
+        "*WindowsWorkload.SemanticText.Data.*",
+        "*WindowsWorkload.SemanticText.Stx.*",
+        "*WindowsWorkload.Data.ContentExtraction.Stx.*",
+        "*WindowsWorkload.ScrRegDetection.Data.*",
+        "*WindowsWorkload.ScrRegDetection.Stx.*",
+        "*WindowsWorkload.TextRecognition.Stx.*",
+        "*WindowsWorkload.Data.ImageSearch.Stx.*",
+        "*WindowsWorkload.ImageContentModeration.*",
+        "*WindowsWorkload.ImageContentModeration.Data.*",
+        "*WindowsWorkload.ImageSearch.Data.*",
+        "*WindowsWorkload.ImageSearch.Stx.*",
+        "*WindowsWorkload.ImageTextSearch.Data.*",
+        "*WindowsWorkload.PSOnnxRuntime.Stx.*",
+        "*WindowsWorkload.PSTokenizerShared.Data.*",
+        "*WindowsWorkload.PSTokenizerShared.Stx.*",
+        "*WindowsWorkload.ImageTextSearch.Stx.*"
     )
     if ($DisableCopilot) {
         $aiPackages += "*Microsoft.Windows.Ai.Copilot.Provider*"
         $aiPackages += "*Microsoft.Copilot*"
         $aiPackages += "*Microsoft.BingChat*"
         $aiPackages += "*Copilot*"
+        $aiPackages += "*MicrosoftWindows.Client.CoPilot*"
+        $aiPackages += "*Microsoft.MicrosoftOfficeHub*"
+        $aiPackages += "*MicrosoftWindows.Client.CoreAI*"
     }
     if ($DisableRecall) {
         $aiPackages += "*Microsoft.Windows.Recall*"
         $aiPackages += "*Microsoft.Windows.Photos*"
     }
     
+    $store = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore'
+
     foreach ($pkg in $aiPackages) {
+        # 1. Deprovisioning & Registry Tricks
         try {
-            $foundPkg = Get-AppxPackage -AllUsers $pkg -ErrorAction SilentlyContinue
-            if ($foundPkg) {
-                $foundPkg | Remove-AppxPackage -AllUsers -ErrorAction Stop 3>$null 2>&1 | Out-Null
-                Log "Package: Removed $pkg"
+            $provisioned = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pkg }
+            foreach ($p in $provisioned) {
+                # Create Deprovisioned key to block return
+                try {
+                     $family = (Get-AppxPackage -Name $p.DisplayName -AllUsers -ErrorAction SilentlyContinue).PackageFamilyName
+                     if ($family) {
+                         New-Item "$store\Deprovisioned\$family" -Force -ErrorAction SilentlyContinue | Out-Null
+                     }
+                } catch {}
+                
+                Remove-AppxProvisionedPackage -Online -PackageName $p.PackageName -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
+                Log "Package: Deprovisioned $($p.DisplayName)"
+            }
+        } catch {}
+
+        # 2. User Package Removal
+        try {
+            $foundPkgs = Get-AppxPackage -AllUsers $pkg -ErrorAction SilentlyContinue
+            foreach ($foundPkg in $foundPkgs) {
+                # Inbox App Removal Trick
+                try {
+                    $inboxPath = "$store\InboxApplications\$($foundPkg.PackageFullName)"
+                    if (Test-Path $inboxPath) {
+                        Remove-Item -Path $inboxPath -Force -ErrorAction SilentlyContinue
+                    }
+                } catch {}
+
+                Remove-AppxPackage -Package $foundPkg.PackageFullName -AllUsers -ErrorAction Stop 3>$null 2>&1 | Out-Null
+                Log "Package: Removed $($foundPkg.Name)"
             }
         } catch {
             if ($_.Exception.Message -match "0x80070032" -or $_.Exception.Message -match "part of Windows") {
@@ -181,11 +303,6 @@ function Remove-WindowsAI {
                  Log "Package: Failed to remove $pkg - $($_.Exception.Message)"
             }
         }
-        
-        # Provisioned Packages (separate try/catch)
-        try {
-            Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $pkg } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
-        } catch {}
     }
 
     # Additional Photos App Removal (Explicit)
