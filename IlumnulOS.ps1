@@ -56,6 +56,7 @@ if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
     }
 
     $requiredFiles = @(
+        @{ Remote = "Modules/Debloat.psm1"; Local = "$InstallPath\Modules\IlumnulOS.mp3" },
         @{ Remote = "Modules/Debloat.psm1"; Local = "$InstallPath\Modules\Debloat.psm1" },
         @{ Remote = "Modules/Gaming.psm1"; Local = "$InstallPath\Modules\Gaming.psm1" },
         @{ Remote = "Modules/Optimize.psm1"; Local = "$InstallPath\Modules\Optimize.psm1" },
