@@ -1,5 +1,4 @@
-# Optimize Module
-function Invoke-SystemOptimization {
+﻿function Invoke-SystemOptimization {
     param(
         [Action[string]]$Logger,
         [hashtable]$Options = @{}
@@ -9,7 +8,6 @@ function Invoke-SystemOptimization {
 
     Log "Starting System Optimizations..."
     
-    # Ensure HKU drive is mapped
     if (!(Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
         New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
     }
@@ -19,7 +17,6 @@ function Invoke-SystemOptimization {
     $DisableSearchIndexing = if ($Options.ContainsKey("DisableSearchIndexing")) { [bool]$Options.DisableSearchIndexing } else { $false }
     $TuneVisualEffects = if ($Options.ContainsKey("VisualEffects")) { [bool]$Options.VisualEffects } else { $true }
 
-    # Helper to set registry key safely
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
         try {
@@ -33,25 +30,19 @@ function Invoke-SystemOptimization {
             }
         } catch {
             if ($_.Exception.Message -match "access is not allowed") {
-                # Silently ignore access denied for protected keys
             } else {
                 Log "Error setting $Name`: $($_.Exception.Message)"
             }
         }
     }
 
-    # Create Restore Point
     Log "Creating System Restore Point..."
     try {
         Enable-ComputerRestore -Drive "C:\" -ErrorAction SilentlyContinue 2>&1 | Out-Null
-        # Checkpoint-Computer writes warning to host even with ErrorAction SilentlyContinue if frequency limit is hit
-        # We redirect the warning stream 3 to $null
         Checkpoint-Computer -Description "System_Optimization" -RestorePointType "MODIFY_SETTINGS" -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
     } catch {
-        # Suppress all restore point warnings/errors
     }
 
-    # Visual Effects - Performance
     if ($TuneVisualEffects) {
         Log "Optimizing Visual Effects for Performance..."
         Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" "VisualFXSetting" 2
@@ -59,7 +50,6 @@ function Invoke-SystemOptimization {
         Set-Reg "HKCU:\Control Panel\Desktop\WindowMetrics" "MinAnimate" "0" "String"
     }
 
-    # Virtual Memory (Ensure System Managed for Stability)
     Log "Configuring Virtual Memory..."
     try {
         $sysInfo = Get-CimInstance Win32_ComputerSystem
@@ -72,7 +62,6 @@ function Invoke-SystemOptimization {
         Log "Failed to configure Pagefile: $_"
     }
 
-    # Storage Optimization (TRIM/Defrag)
     Log "Optimizing Storage Drives..."
     try {
         Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter -ne $null } | ForEach-Object {
@@ -83,21 +72,11 @@ function Invoke-SystemOptimization {
         Log "Storage optimization failed: $_"
     }
 
-    # BCD Tweaks
     Log "Applying BCD Tweaks..."
     & bcdedit /set useplatformclock No 2>&1 | Out-Null
     & bcdedit /set useplatformtick No 2>&1 | Out-Null
     & bcdedit /set disabledynamictick Yes 2>&1 | Out-Null
 
-    # Mitigations (Spectre/Meltdown) - Left Default for Security
-    # Log "Disabling Mitigations..."
-    # try {
-    #    ForEach ($v in (Get-Command -Name "Set-ProcessMitigation").Parameters["Disable"].Attributes.ValidValues) {
-    #         Set-ProcessMitigation -System -Disable $v.ToString() -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
-    #    }
-    # } catch {}
-    
-    # VBS (Virtualization Based Security) - ENABLED as requested
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard" "EnableVirtualizationBasedSecurity" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard" "HVCIMATRequired" 1
     
@@ -110,7 +89,6 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "FeatureSettingsOverrideMask" 3
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" "MitigationOptions" ([byte[]](0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22)) "Binary"
 
-    # NTFS Tweaks
     Log "Applying NTFS Tweaks..."
     & fsutil behavior set memoryusage 2 2>&1 | Out-Null
     & fsutil behavior set mftzone 4 2>&1 | Out-Null
@@ -118,24 +96,17 @@ function Invoke-SystemOptimization {
     & fsutil behavior set disabledeletenotify 0 2>&1 | Out-Null
     & fsutil behavior set encryptpagingfile 0 2>&1 | Out-Null
 
-    # Disable Memory Compression & Page Combining
     Log "Disabling Memory Compression..."
-    # Disable-MMAgent requires SysMain to be running. We check later in the script.
-    # Removed unsafe direct calls to prevent service errors.
 
-    # Win32Priority
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 38
 
-    # Large System Cache
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "LargeSystemCache" 1
 
-    # Manual Memory Pool & Cache Tuning
     Log "Tuning Memory Pools & System Cache..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "PoolUsageMaximum" 60
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "SystemPages" 0xFFFFFFFF
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "IoPageLockLimit" 16777216 # Optimized for 16GB+
     
-    # Disable Memory Compression (MM Agent)
     Log "Disabling Memory Compression..."
     try {
         if (Get-Service "SysMain" -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq 'Running'}) {
@@ -143,66 +114,52 @@ function Invoke-SystemOptimization {
         }
     } catch {}
 
-    # Large Page Support
     Log "Enabling Large Page Support..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "LargePageMinimum" 0xFFFFFFFF
     
-    # System Cache Dirty Page Tuning (Prevents micro-stutters)
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "SystemCacheDirtyPageThreshold" 512
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "SystemCacheDirtyPageTarget" 256
 
-    # Windows Search Indexer Deep Disable
     Log "Aggressively Disabling Search Indexer..."
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "AllowIndexingEncryptedStoresOrItems" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" "DisableBackoff" 1
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\WSearch" "Start" 4
     try {
         Stop-Service -Name "WSearch" -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-        # Delete Index files (aggressive)
         $indexPath = "C:\ProgramData\Microsoft\Search\Data\Applications\Windows"
         if (Test-Path $indexPath) { Remove-Item -Path "$indexPath\*" -Recurse -Force -ErrorAction SilentlyContinue }
     } catch {}
 
-    # Ultimate Performance Power Plan
     Log "Activating Ultimate Performance Power Plan..."
     try {
-        # Duplicate the Ultimate Performance scheme (e9a42b02-d5df-448d-aa00-03f14749eb61)
         $ultimateScheme = & powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1
         if ($ultimateScheme -match '([a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12})') {
             $schemeGuid = $matches[0]
             & powercfg -setactive $schemeGuid | Out-Null
             Log " [OK] Ultimate Performance Plan Activated ($schemeGuid)"
         } else {
-            # Fallback to High Performance if Ultimate is not available
             & powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
             Log " [INFO] Fallback to High Performance Plan."
         }
         
-        # Ensure Hibernate is OFF (Powercfg)
         & powercfg -h off 2>&1 | Out-Null
     } catch {
         Log " [!] Failed to set Power Plan: $_"
     }
 
-    # Disable Display Power Saving (DPST) - Common on Laptops/Modern Monitors
     Log "Disabling Display Power Saving (DPST)..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000" "FeatureTestControl" 0x9240
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0001" "FeatureTestControl" 0x9240
 
-    # Visual Effects -> Best Performance
     Log "Optimizing Visual Effects for Performance..."
-    # Disable Transparency
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" "EnableTransparency" 0
-    # Disable Animations
     Set-Reg "HKCU:\Control Panel\Desktop" "UserPreferencesMask" ([byte[]](0x90, 0x12, 0x03, 0x80, 0x10, 0x00, 0x00, 0x00)) "Binary"
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" "VisualFXSetting" 2 # Adjust for best performance
 
-    # NTFS 8dot3NameCreation & LastAccess (Enhanced)
     Log "Applying Advanced NTFS Tweaks..."
     & fsutil 8dot3name set 1 2>&1 | Out-Null
     & fsutil behavior set disablelastaccess 1 2>&1 | Out-Null
 
-    # Disable Fast Startup & Hibernation
     if ($DisableHibernation) {
         Log "Disabling Hibernation..."
         & powercfg /h off 2>&1 | Out-Null
@@ -211,22 +168,14 @@ function Invoke-SystemOptimization {
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "SleepReliabilityDetailedDiagnostics" 0
     }
 
-    # Disable Sleep Study
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" "SleepStudyDisabled" 1
 
-    # DEP (Data Execution Prevention) - Enabled (Default)
-    # Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Main" "DEPOff" 1
-
-    # Disable Automatic Maintenance
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance" "MaintenanceDisabled" 1
 
-    # Disable Paging Executive
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "DisablePagingExecutive" 1
 
-    # Disable FTH (Fault Tolerant Heap)
     Set-Reg "HKLM:\SOFTWARE\Microsoft\FTH" "Enabled" 0
 
-    # SvcHost Split Threshold (Set to Total RAM)
     try {
         $MemoryKB = (Get-CimInstance Win32_PhysicalMemory | Measure-Object Capacity -Sum).Sum / 1KB
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control" "SvcHostSplitThresholdInKB" ([int]$MemoryKB)
@@ -234,17 +183,14 @@ function Invoke-SystemOptimization {
         Log "Failed to set SvcHostSplitThreshold: $_"
     }
 
-    # Disable Dynamic Tick (BCD)
     try {
         & bcdedit /set disabledynamictick yes | Out-Null
     } catch {
         Log "Failed to apply Dynamic Ticking tweak"
     }
 
-    # Disable ASLR
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "MoveImages" 0
 
-    # Disable Power Throttling
     Log "Disabling Power Throttling..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" "PowerThrottlingOff" 1
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" "CoalescingTimerInterval" 0
@@ -259,27 +205,22 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "EventProcessorEnabled" 0
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "CsEnabled" 0
 
-    # Distribute Timers & Timestamp
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" "DistributeTimers" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Reliability" "TimeStampInterval" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Reliability" "IoPriority" 3
 
-    # MenuShowDelay
     Set-Reg "HKCU:\Control Panel\Desktop" "MenuShowDelay" 0
 
-    # Disable Energy Logging
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power\EnergyEstimation\TaggedEnergy" "DisableTaggedEnergyLogging" 1
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power\EnergyEstimation\TaggedEnergy" "TelemetryMaxApplication" 0
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power\EnergyEstimation\TaggedEnergy" "TelemetryMaxTagPerApplication" 0
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\GpuEnergyDrv" "Start" 4
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\GpuEnergyDr" "Start" 4
 
-    # Service Priorities (Kernel, DWM, etc.)
     Log "Setting Service Priorities..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\I/O System" "PassiveIntRealTimeWorkerPriority" 18
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\KernelVelocity" "DisableFGBoostDecay" 1
     
-    # Image File Execution Options (CpuPriorityClass / IoPriority / PagePriority)
     $services = @(
         @{Name="dwm.exe"; Cpu=4; Io=3; Page=$null},
         @{Name="lsass.exe"; Cpu=1; Io=0; Page=0},
@@ -294,24 +235,17 @@ function Invoke-SystemOptimization {
     
     foreach ($svc in $services) {
         $exe = $svc.Name
-        # Set for 64-bit
         if ($svc.Cpu -ne $null) { Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe\PerfOptions" "CpuPriorityClass" $svc.Cpu }
         if ($svc.Io -ne $null) { Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe\PerfOptions" "IoPriority" $svc.Io }
         if ($svc.Page -ne $null) { Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe\PerfOptions" "PagePriority" $svc.Page }
         
-        # Set for WOW6432Node (32-bit compatibility)
         if ($svc.Cpu -ne $null) { Set-Reg "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe\PerfOptions" "CpuPriorityClass" $svc.Cpu }
         if ($svc.Io -ne $null) { Set-Reg "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe\PerfOptions" "IoPriority" $svc.Io }
         if ($svc.Page -ne $null) { Set-Reg "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe\PerfOptions" "PagePriority" $svc.Page }
     }
 
-    # PCI Express Power Management (Link State Power Management - Off)
     Log "Setting PCIe Power Management to Off (Max Performance)..."
     try {
-        # Using GUIDs for better compatibility
-        # Subgroup: 501a1069-1b6d-4610-99e4-801be973c962 (PCI Express)
-        # Setting:  ee2a9642-7819-4592-9508-cf2d47a2d45a (Link State Power Management)
-        # Value: 0 (Off)
         & powercfg /setacvalueindex SCHEME_CURRENT 501a1069-1b6d-4610-99e4-801be973c962 ee2a9642-7819-4592-9508-cf2d47a2d45a 0 2>&1 | Out-Null
         & powercfg /setdcvalueindex SCHEME_CURRENT 501a1069-1b6d-4610-99e4-801be973c962 ee2a9642-7819-4592-9508-cf2d47a2d45a 0 2>&1 | Out-Null
         & powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
@@ -319,7 +253,6 @@ function Invoke-SystemOptimization {
         Log "PCIe Power tweak failed (maybe not supported): $($_.Exception.Message)"
     }
 
-    # Clean Windows Update Cache (SoftwareDistribution / Catroot2)
     Log "Cleaning Windows Update Cache..."
     try {
         Stop-Service -Name "wuauserv" -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
@@ -333,22 +266,18 @@ function Invoke-SystemOptimization {
         Start-Service -Name "cryptSvc" -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
         Start-Service -Name "bits" -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
         Start-Service -Name "msiserver" -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-        # wuauserv left stopped/manual per previous tweak
     } catch {
         Log "Windows Update cleanup failed: $_"
     }
 
-    # Disable Windows Updates (Partial - Pause/Disable Auto Update)
     Log "Disabling Windows Auto Updates..."
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "NoAutoUpdate" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" "AUOptions" 2
     try {
         Stop-Service -Name "wuauserv" -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-        # We don't disable wuauserv completely as it breaks Store, but we stop it and set to Manual
         Set-Service -Name "wuauserv" -StartupType Manual -ErrorAction SilentlyContinue
     } catch {}
 
-    # Disable Network Protocols (IPv6, Teredo, ISATAP)
     Log "Disabling Unnecessary Network Protocols..."
     try {
         Disable-NetAdapterBinding -Name "*" -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue | Out-Null
@@ -359,14 +288,12 @@ function Invoke-SystemOptimization {
         Log "Network protocol tweak failed: $_"
     }
 
-    # Disable Diagnostic Tools & Defrag
     Log "Disabling Diagnostic Tools..."
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Diagnostics\DiagTrack" "Enabled" 0
     try {
         Disable-ScheduledTask -TaskName "\Microsoft\Windows\Defrag\ScheduledDefrag" -ErrorAction SilentlyContinue | Out-Null
     } catch {}
 
-    # Block Shadow Domains (Hosts File)
     Log "Blocking Telemetry Domains..."
     $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
     $telemetryDomains = @(
@@ -385,11 +312,9 @@ function Invoke-SystemOptimization {
         Log "Failed to update hosts file (Run as Admin?)"
     }
 
-    # Realtek Audio Power Settings
     Log "Optimizing Realtek Audio Power..."
     $realtekKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e96c-e325-11ce-bfc1-08002be10318}"
     if (Test-Path $realtekKey) {
-        # Fix: Add -ErrorAction SilentlyContinue to skip restricted keys
         Get-ChildItem $realtekKey -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
             try {
                 if ($_.Property -contains "PowerSettings") {
@@ -402,7 +327,6 @@ function Invoke-SystemOptimization {
         }
     }
 
-    # NTFS Compression (CompactOS)
     Log "Applying CompactOS Compression..."
     try {
         compact.exe /CompactOS:always 2>&1 | Out-Null
@@ -410,7 +334,6 @@ function Invoke-SystemOptimization {
         Log "CompactOS failed: $_"
     }
 
-    # Disable Windows Defender (Partial / Registry based)
     Log "Disabling Windows Defender..."
     try {
         Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue | Out-Null
@@ -423,7 +346,6 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\SmartScreen" "ConfigureAppInstallControlEnabled" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Reporting" "DisableEnhancedNotifications" 1
     
-    # Windows Defender (Advanced Disabling)
     Log "Disabling Windows Defender Advanced..."
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Reporting" "DisableGenericReports" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet" "LocalSettingOverrideSpynetReporting" 0
@@ -437,7 +359,6 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Threats\ThreatSeverityDefaultAction" "5" "6" "String"
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\UX Configuration" "Notification_Suppress" 1
     
-    # Disable Defender Services
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\Sense" "Start" 4
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\WdNisSvc" "Start" 4
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\WinDefend" "Start" 4
@@ -461,7 +382,6 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "EnableSmartScreen" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftEdge\PhishingFilter" "EnabledV9" 0
 
-    # Enable Full Screen Optimizations (FSO)
     Log "Enabling Full Screen Optimizations..."
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_DSEBehavior" 0
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_FSEBehaviorMode" 0
@@ -469,7 +389,6 @@ function Invoke-SystemOptimization {
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_DXGIHonorFSEWindowsCompatible" 0
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_HonorUserFSEBehaviorMode" 1
 
-    # Advanced Latency & Power Management
     Log "Setting Advanced Latency Tolerance..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\DXGKrnl" "MonitorLatencyTolerance" 1
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\DXGKrnl" "MonitorRefreshLatencyTolerance" 1
@@ -509,7 +428,6 @@ function Invoke-SystemOptimization {
     Set-Reg $gfxPower "MonitorRefreshLatencyTolerance" 1
     Set-Reg $gfxPower "TransitionLatency" 1
     
-    # Resource Policy Values
     Log "Setting Resource Policy Store Values..."
     Set-Reg "HKLM:\SYSTEM\ResourcePolicyStore\ResourceSets\Policies\CPU\HardCap0" "CapPercentage" 0
     Set-Reg "HKLM:\SYSTEM\ResourcePolicyStore\ResourceSets\Policies\CPU\HardCap0" "SchedulingType" 0
@@ -520,7 +438,6 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SYSTEM\ResourcePolicyStore\ResourceSets\Policies\CPU\SoftCapLow" "CapPercentage" 0
     Set-Reg "HKLM:\SYSTEM\ResourcePolicyStore\ResourceSets\Policies\CPU\SoftCapLow" "SchedulingType" 0
     
-    # Flags & Importance
     $flags = @("BackgroundDefault", "Frozen", "FrozenDNCS", "FrozenDNK", "FrozenPPLE", "Paused", "PausedDNK", "Pausing", "PrelaunchForeground", "ThrottleGPUInterference")
     foreach ($flag in $flags) {
         Set-Reg "HKLM:\SYSTEM\ResourcePolicyStore\ResourceSets\Policies\Flags\$flag" "IsLowPriority" 0
@@ -536,13 +453,11 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SYSTEM\ResourcePolicyStore\ResourceSets\Policies\Memory\NoCap" "CommitLimit" 4294967295
     Set-Reg "HKLM:\SYSTEM\ResourcePolicyStore\ResourceSets\Policies\Memory\NoCap" "CommitTarget" 4294967295
 
-    # Accessibility Tweaks
     Log "Disabling Sticky/Filter/Toggle Keys..."
     Set-Reg "HKCU:\Control Panel\Accessibility\StickyKeys" "Flags" "506" "String"
     Set-Reg "HKCU:\Control Panel\Accessibility\Keyboard Response" "Flags" "122" "String"
     Set-Reg "HKCU:\Control Panel\Accessibility\ToggleKeys" "Flags" "58" "String"
 
-    # Mouse & Keyboard Optimization
     Log "Optimizing Mouse & Keyboard Response..."
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseSpeed" "0" "String"
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold1" "0" "String"
@@ -554,11 +469,9 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\kbdclass\Parameters" "KeyboardDataQueueSize" 16
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" "DebugPollInterval" 1000
     
-    # Disable Mouse Smoothing
     Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseXCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
     Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseYCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
 
-    # USB & MSI Mode Tweaks
     Log "Optimizing USB Controllers (MSI Mode & Power)..."
     $usbControllers = Get-WmiObject Win32_USBController | Where-Object { $_.PNPDeviceID -match "PCI\\VEN_" }
     foreach ($usb in $usbControllers) {
@@ -566,7 +479,6 @@ function Invoke-SystemOptimization {
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties" "MSISupported" 1
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId\Device Parameters\Interrupt Management\Affinity Policy" "DevicePriority" 0
         
-        # Disable USB Power Savings
         $devParams = "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId\Device Parameters"
         Set-Reg $devParams "AllowIdleIrpInD3" 0
         Set-Reg $devParams "D3ColdSupported" 0
@@ -577,7 +489,6 @@ function Invoke-SystemOptimization {
         Set-Reg $devParams "SelectiveSuspendOn" 0
     }
     
-    # Button 13: IPv6 & Teredo (Enhanced)
     Log "Disabling Teredo, ISATAP & IPv6 Components..."
     try {
         Disable-NetAdapterBinding -Name "*" -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue | Out-Null
@@ -591,33 +502,26 @@ function Invoke-SystemOptimization {
         Log "Error disabling IPv6 components: $_"
     }
 
-    # Button 14: Large System Cache
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "LargeSystemCache" 1
 
-    # Button 15: Explorer Serialize (Startup Delay)
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" "Startupdelayinmsec" 0
 
-    # Button 16: Explorer Tracking (Frequent/Recent)
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" "ShowFrequent" 0
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer" "ShowRecent" 0
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "Start_TrackDocs" 0
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "Start_TrackProgs" 0
 
-    # Button 17: AutoPlay
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers" "DisableAutoplay" 1
 
-    # Button 18: PowerCfg (Ultimate Performance)
     if ($UsePowerPlan) {
         Log "Setting Ultimate Performance Power Plan..."
         try {
-            # Duplicate the Ultimate Performance scheme (e9a42b02-d5df-448d-aa00-03f14749eb61)
             $ultimateScheme = & powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1
             if ($ultimateScheme -match '([a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12})') {
                 $schemeGuid = $matches[0]
                 & powercfg -setactive $schemeGuid | Out-Null
                 Log " [OK] Ultimate Performance Plan Activated ($schemeGuid)"
             } else {
-                # Fallback to High Performance if Ultimate is not available
                 & powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
                 Log " [INFO] Fallback to High Performance Plan."
             }
@@ -626,7 +530,6 @@ function Invoke-SystemOptimization {
         }
     }
 
-    # Button 19: Bluetooth Radio State (Off)
     Log "Disabling Bluetooth Radio..."
     try {
         Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -649,56 +552,45 @@ function Invoke-SystemOptimization {
         Log "Bluetooth tweak failed (WinRT/Assembly error): $_"
     }
 
-    # Button 20: Firewall & Services
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\mpssvc" "Start" 4
     netsh advfirewall set allprofiles state off 2>&1 | Out-Null
     if ([System.Environment]::OSVersion.Version.Build -ge 22621) {
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\wtd" "Start" 4
     }
 
-    # Button 21: Game Mode (Enable)
     Set-Reg "HKCU:\Software\Microsoft\GameBar" "AutoGameModeEnabled" 1
     Set-Reg "HKCU:\Software\Microsoft\GameBar" "AllowAutoGameMode" 1
 
-    # Button 22: Game DVR (Disable)
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR" "AppCaptureEnabled" 0
     Set-Reg "HKCU:\System\GameConfigStore" "GameDVR_Enabled" 0
     Set-Reg "HKCU:\Software\Microsoft\GameBar" "UseNexusForGameBarEnabled" 0
 
-    # Button 23: Background Apps
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" "GlobalUserDisabled" 1
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" "BackgroundAppGlobalToggle" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" "LetAppsRunInBackground" 2
 
-    # Button 24: Reserve Manager
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager" "MiscPolicyInfo" 2
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager" "PassedPolicy" 0
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager" "ShippedWithReserves" 0
 
-    # Button 25: BCD Tweaks (Dynamic Tick)
     & bcdedit /set disabledynamictick yes 2>&1 | Out-Null
     & bcdedit /set useplatformclock false 2>&1 | Out-Null
 
-    # Button 26: PC Health Check
     try {
         Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\PCHC" -Name "PreviousUninstall" -ErrorAction SilentlyContinue | Out-Null
         Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\PCHealthCheck" -Name "installed" -ErrorAction SilentlyContinue | Out-Null
     } catch {}
 
-    # Button 28: Boot Optimization (Disable Defrag as requested)
-    # User requested "Turn off automatic disk defragmentation"
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Dfrg\BootOptimizeFunction" "Enable" "N" "String"
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\services\defragsvc" "Start" 4
     try { Disable-ScheduledTask -TaskName "\Microsoft\Windows\Defrag\ScheduledDefrag" -ErrorAction SilentlyContinue | Out-Null } catch {}
 
-    # Firewall Rules: Block Telemetry IPs
     Log "Adding Firewall Rules to block Telemetry..."
     $telemetryIPs = @("20.189.173.20", "20.189.173.21", "20.189.173.22", "20.190.159.0/24", "20.190.160.0/24")
     foreach ($ip in $telemetryIPs) {
         New-NetFirewallRule -DisplayName "Block_Telemetry_$ip" -Direction Outbound -RemoteAddress $ip -Action Block -Enabled True -ErrorAction SilentlyContinue | Out-Null
     }
 
-    # Button 29: Windows Update Pause (10 Years)
     Log "Pausing Windows Updates for 10 Years..."
     $now = [DateTime]::UtcNow
     $start = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -735,7 +627,6 @@ function Invoke-SystemOptimization {
     
     & gpupdate /force | Out-Null
 
-    # Disable Global Selective Suspend
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\USB" "DisableSelectiveSuspend" 1
 
     Log "Applying extended system and taskbar policies..."
@@ -750,21 +641,16 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "DisableNotificationCenter" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer" "HidePeopleBar" 1
 
-    # NumLock on Startup
     Set-Reg "HKU:\.Default\Control Panel\Keyboard" "InitialKeyboardIndicators" 2
     Set-Reg "HKCU:\Control Panel\Keyboard" "InitialKeyboardIndicators" 2
 
-    # Detailed BSoD
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl" "DisplayParameters" 1
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl" "DisableEmoticon" 1
 
-    # Modern Standby Fix (Disable Network in Standby)
     Set-Reg "HKCU:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9" "ACSettingIndex" 0
 
-    # S3 Sleep (Disable Modern Standby)
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "PlatformAoAcOverride" 0
 
-    # Disable Explorer Automatic Folder Discovery
     Log "Disabling Explorer Folder Discovery..."
     try {
         Remove-Item -Path "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags" -Recurse -Force -ErrorAction SilentlyContinue
@@ -774,7 +660,6 @@ function Invoke-SystemOptimization {
         Set-ItemProperty -Path $allFolders -Name "FolderType" -Value "NotSpecified" -PropertyType String -Force
     } catch {}
 
-    # Set Services to Manual (Optimization)
     Log "Setting Services to Manual (Optimization)..."
     $manualServices = @(
         "ALG", "AppMgmt", "AppReadiness", "Appinfo", "AxInstSV", "BDESVC", "BTAGService", 
@@ -850,7 +735,6 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "NewTabPageContentEnabled" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "NewTabPageHideDefaultTopSites" 1
 
-    # Windows Insider & Privacy Extensions
     Set-Reg "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\System" "AllowExperimentation" 0
     Set-Reg "HKLM:\SOFTWARE\Microsoft\PolicyManager\default\System\AllowExperimentation" "value" 0
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CDP" "CdpSessionUserAuthzPolicy" 0
@@ -862,12 +746,10 @@ function Invoke-SystemOptimization {
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search" "DeviceHistoryEnabled" 0
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search" "BingSearchEnabled" 0
     
-    # Notifications
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\PushNotifications" "ToastEnabled" 0
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings" "NOC_GLOBAL_SETTING_ALLOW_NOTIFICATION_SOUND" 0
     Set-Reg "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings" "NOC_GLOBAL_SETTING_ALLOW_CRITICAL_TOASTS_ABOVE_LOCK" 0
     
-    # Capability Access Manager (Privacy)
     $capStore = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore"
     $denyList = @("activity","appDiagnostics","appointments","bluetoothSync","broadFileSystemAccess","cellularData","chat","contacts","documentsLibrary","email","gazeInput","location","phoneCall","phoneCallHistory","picturesLibrary","radios","userAccountInformation","userDataTasks","userNotificationListener","videosLibrary")
     foreach ($cap in $denyList) {
@@ -876,9 +758,6 @@ function Invoke-SystemOptimization {
     Set-Reg "$capStore\microphone" "Value" "Allow" "String"
     Set-Reg "$capStore\webcam" "Value" "Allow" "String"
     try {
-        # Using GUIDs for better compatibility
-        # Subgroup: 238c9fa8-0aad-41ed-83f4-97be242c8d20 (Sleep)
-        # Setting:  d4c8d97d-4807-41b5-90b9-3557568117ca (Networking connectivity in Standby)
         & powercfg /setacvalueindex SCHEME_CURRENT 238c9fa8-0aad-41ed-83f4-97be242c8d20 d4c8d97d-4807-41b5-90b9-3557568117ca 0 2>&1 | Out-Null
         & powercfg /setdcvalueindex SCHEME_CURRENT 238c9fa8-0aad-41ed-83f4-97be242c8d20 d4c8d97d-4807-41b5-90b9-3557568117ca 0 2>&1 | Out-Null
         & powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
@@ -895,50 +774,38 @@ function Invoke-SystemOptimization {
         }
     }
 
-    # --- GTweak Integration (System Performance) ---
     Log "Applying GTweak Performance settings..."
 
-    # Disable Sticky Keys & Keyboard Response
     Set-Reg "HKCU:\Control Panel\Accessibility\StickyKeys" "Flags" "506" "String"
     Set-Reg "HKCU:\Control Panel\Accessibility\Keyboard Response" "Flags" "122" "String"
 
-    # Disable Security Center Notifications
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows Defender Security Center\Notifications" "DisableNotifications" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications" "DisableNotifications" 1
 
-    # Auto End Tasks (Faster Shutdown)
     Set-Reg "HKCU:\Control Panel\Desktop" "AutoEndTasks" "1"
 
-    # Disable Explorer Startup Delay
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" "Startupdelayinmsec" 0
 
-    # Disable Background Apps (Global Toggle)
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" "GlobalUserDisabled" 1
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search" "BackgroundAppGlobalToggle" 0
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" "LetAppsRunInBackground" 2
 
-    # Disable Windows Store Auto Download
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore" "AutoDownload" 2
 
-    # --- optimizerNXT Integration (Performance & Latency) ---
     Log "Applying optimizerNXT Performance tweaks..."
 
-    # Multimedia System Profile (Gaming/Low Latency)
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NoLazyMode" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "AlwaysOn" 1
     
-    # Multimedia Task Priorities (Games)
     $mmGames = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games"
     Set-Reg $mmGames "GPU Priority" 8
     Set-Reg $mmGames "Priority" 6
     Set-Reg $mmGames "Scheduling Category" "High" "String"
     Set-Reg $mmGames "SFIO Priority" "High" "String"
 
-    # Network Throttling (Disable)
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF
 
-    # Service & App Timeouts (Faster Kill)
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control" "WaitToKillServiceTimeout" "2000" "String"
     Set-Reg "HKCU:\Control Panel\Desktop" "HungAppTimeout" "1000" "String"
     Set-Reg "HKCU:\Control Panel\Desktop" "WaitToKillAppTimeout" "2000" "String"
@@ -946,10 +813,8 @@ function Invoke-SystemOptimization {
     Set-Reg "HKCU:\Control Panel\Desktop" "MenuShowDelay" 0
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseHoverTime" 0
 
-    # Crash Dump (Mini Dump)
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl" "CrashDumpEnabled" 3
 
-    # NTFS & Explorer Tweaks
     & fsutil behavior set disablelastaccess 1 2>&1 | Out-Null
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoLowDiskSpaceChecks" 1
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "LinkResolveIgnoreLinkInfo" 1
@@ -957,26 +822,17 @@ function Invoke-SystemOptimization {
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoResolveTrack" 1
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "NoInternetOpenWith" 1
 
-    # Disable Remote Assistance
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Remote Assistance" "fAllowToGetHelp" 0
 
-    # Media Foundation Frame Server (Fix for some games/apps)
     Set-Reg "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows Media Foundation" "EnableFrameServerMode" 0
 
-    # Windows 11 UI Tweaks (optimizerNXT)
-    # Align Taskbar Left
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarAl" 0
-    # Disable Snap Assist Flyout
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "EnableSnapAssistFlyout" 0
-    # Classic Context Menu
     Set-Reg "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" "" "" "String"
-    # Hide Meet Now
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "HideSCAMeetNow" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer" "HideSCAMeetNow" 1
-    # Disable Stickers
     try { Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Stickers" -Name "EnableStickers" -ErrorAction SilentlyContinue } catch {}
 
-    # SmartScreen & Attachments (optimizerNXT)
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments" "SaveZoneInformation" 1
     Set-Reg "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments" "ScanWithAntiVirus" 1
     Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System" "ShellSmartScreenLevel" "Warn" "String"
@@ -985,6 +841,161 @@ function Invoke-SystemOptimization {
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Internet Explorer\PhishingFilter" "EnabledV9" 0
     Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\AppHost" "PreventOverride" 0
 
+    Log "Applying Additional Performance & FPS Tweaks..."
+
+    # System Responsiveness & Priority
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 0
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 0x26
+
+    # Network Throttling & Latency
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF
+    
+    # GPU Tweaks (NVIDIA/AMD) - MSI Mode, P-States, HDCP
+    # Note: Specific GPU GUIDs are dynamic, but we can set global flags where applicable
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "PlatformSupportMiracast" 0
+    
+    # Input Latency Reduction
+    Set-Reg "HKCU:\Control Panel\Mouse" "MouseSpeed" "0" "String"
+    Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold1" "0" "String"
+    Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold2" "0" "String"
+    Set-Reg "HKCU:\Control Panel\Desktop" "MenuShowDelay" "0" "String"
+
+    # Disable Game Bar & DVR (Full disable)
+    Set-Reg "HKCU:\System\GameConfigStore" "GameDVR_Enabled" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" "AppCaptureEnabled" 0
+    Set-Reg "HKCU:\Software\Microsoft\GameBar" "UseNexusForGameBarEnabled" 0
+    Set-Reg "HKCU:\Software\Microsoft\GameBar" "AutoGameModeEnabled" 1
+    
+    # Disable Xbox Capture
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" "AudioCaptureEnabled" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" "HistoricalCaptureEnabled" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" "CursorCaptureEnabled" 0
+
+    # Privacy & Background Apps (FPS boost by freeing resources)
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" "LetAppsRunInBackground" 2
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" "LetAppsAccessGazeInput" 2
+    Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" "LetAppsAccessMotion" 2
+    
+    # Visual Effects (Performance)
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" "VisualFXSetting" 3
+    Set-Reg "HKCU:\Control Panel\Desktop\WindowMetrics" "MinAnimate" "0" "String"
+    Set-Reg "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarAnimations" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\DWM" "EnableAeroPeek" 0
+    Set-Reg "HKCU:\Software\Microsoft\Windows\DWM" "AlwaysHibernateThumbnails" 0
+    
+    # File System & Cache
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" "NtfsDisableLastAccessUpdate" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer" "MaxCachedIcons" "4096" "String"
+    
+    # Disable Fault Tolerant Heap (Reduces overhead)
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\FTH" "Enabled" 0
+    
+    # Disable Sleep/Hibernate/Fast Startup
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Power" "HibernateEnabled" 0
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" "HiberbootEnabled" 0
+
     Log "System Optimizations Applied."
 }
 Export-ModuleMember -Function Invoke-SystemOptimization
+
+function Invoke-GroupPolicyTweaks {
+    param(
+        [Action[string]]$Logger
+    )
+
+    function Log($msg) { if ($Logger) { $Logger.Invoke($msg) } else { Write-Host $msg } }
+
+    Log "Applying Group Policy Tweaks (Update Blocking)..."
+
+    function Set-Reg {
+        param($Path, $Name, $Value, $Type = "DWord")
+        try {
+            $Path = $Path.TrimEnd('\')
+            if (!(Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
+            if ([string]::IsNullOrEmpty($Name)) {
+                Set-Item -Path $Path -Value $Value -Force -ErrorAction Stop
+            } else {
+                Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force -ErrorAction Stop
+            }
+        } catch {}
+    }
+
+    # WSUS Spoofing to block updates
+    $wuPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
+    Set-Reg $wuPath "WUServer" "https://DoNotUpdateWindows10.com/" "String"
+    Set-Reg $wuPath "WUStatusServer" "https://DoNotUpdateWindows10.com/" "String"
+    Set-Reg $wuPath "UpdateServiceUrlAlternate" "https://DoNotUpdateWindows10.com/" "String"
+    Set-Reg $wuPath "SetProxyBehaviorForUpdateDetection" 0
+    Set-Reg $wuPath "SetDisableUXWUAccess" 1
+    Set-Reg $wuPath "DoNotConnectToWindowsUpdateInternetLocations" 1
+    Set-Reg $wuPath "ExcludeWUDriversInQualityUpdate" 1
+    
+    $auPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+    Set-Reg $auPath "NoAutoUpdate" 1
+    Set-Reg $auPath "UseWUServer" 1
+
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\UsoSvc" "Start" 4
+    
+    # Delivery Optimization
+    Set-Reg "HKU:\S-1-5-20\Software\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Settings" "DownloadMode" 0
+
+    try {
+        Disable-ScheduledTask -TaskName "\Microsoft\Windows\WindowsUpdate\Scheduled Start" -ErrorAction SilentlyContinue | Out-Null
+    } catch {}
+
+    Log "Group Policy Tweaks Applied."
+}
+Export-ModuleMember -Function Invoke-GroupPolicyTweaks
+
+function Invoke-ModernCursor {
+    param(
+        [Action[string]]$Logger
+    )
+
+    function Log($msg) { if ($Logger) { $Logger.Invoke($msg) } else { Write-Host $msg } }
+
+    Log "Installing Modern Cursor Scheme..."
+    
+    # Locate ModernCursors folder in Modules
+    $sourceCursors = Join-Path $PSScriptRoot "ModernCursors"
+    $destCursors = "$env:SystemRoot\Cursors\Fluent Cursor"
+    
+    if (Test-Path $sourceCursors) {
+        if (!(Test-Path $destCursors)) {
+            New-Item -Path $destCursors -ItemType Directory -Force | Out-Null
+        }
+        
+        Log "Copying cursor files..."
+        Copy-Item "$sourceCursors\*" -Destination $destCursors -Force -Recurse -Exclude "*.reg"
+        
+        Log "Registering cursor scheme..."
+        $regFile = Join-Path $sourceCursors "ModernCursorScheme.reg"
+        if (Test-Path $regFile) {
+            Start-Process regedit.exe -ArgumentList "/s `"$regFile`"" -Wait
+        }
+        
+        Log "Refreshing system cursors..."
+        $code = @"
+using System;
+using System.Runtime.InteropServices;
+public class CursorRefresher {
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, IntPtr pvParam, uint fWinIni);
+}
+"@
+        try {
+            if (-not ([System.Management.Automation.PSTypeName]'WinAPI.CursorRefresher').Type) {
+                Add-Type -TypeDefinition $code -Name "CursorRefresher" -Namespace "WinAPI" -ErrorAction Stop
+            }
+            [WinAPI.CursorRefresher]::SystemParametersInfo(0x0057, 0, [IntPtr]::Zero, 0) # SPI_SETCURSORS
+        } catch {
+            Log "Failed to refresh cursors via API: $_"
+        }
+        
+        Log "Modern Cursor applied."
+    } else {
+        Log "ModernCursors folder not found in: $sourceCursors"
+    }
+}
+Export-ModuleMember -Function Invoke-ModernCursor

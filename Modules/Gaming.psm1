@@ -1,5 +1,4 @@
-# Gaming Module
-function Invoke-GamingOptimization {
+﻿function Invoke-GamingOptimization {
     param(
         [Action[string]]$Logger,
         [hashtable]$Options = @{}
@@ -14,7 +13,6 @@ function Invoke-GamingOptimization {
     $EnableHags = if ($Options.ContainsKey("HAGS")) { [bool]$Options.HAGS } else { $true }
     $EnableNetworkTweaks = if ($Options.ContainsKey("NetworkTweaks")) { [bool]$Options.NetworkTweaks } else { $true }
 
-    # Helper to set registry key safely
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
         try {
@@ -28,30 +26,22 @@ function Invoke-GamingOptimization {
             }
         } catch {
             if ($_.Exception.Message -match "access is not allowed") {
-                # Silently ignore access denied for protected keys
             } else {
                 Log "Error setting $Name`: $($_.Exception.Message)"
             }
         }
     }
 
-    # Backup / Restore Point
     Log "Creating System Restore Point (Gaming Optimization)..."
     try {
         Enable-ComputerRestore -Drive "C:\" -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
         Checkpoint-Computer -Description "IlumnulOS_GamingBoost" -RestorePointType "MODIFY_SETTINGS" -ErrorAction SilentlyContinue 3>$null 2>&1 | Out-Null
     } catch {
-        # Suppress all restore point warnings/errors
     }
 
-    # =========================================================================
-    # 1. NETWORK OPTIMIZATION (Latency & Throughput)
-    # Impact: Advanced | Benefit: Lower ping, reduced packet loss
-    # =========================================================================
     if ($EnableNetworkTweaks) {
     Log "Applying Network Optimizations..."
     
-    # Global TCP Settings
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "GlobalMaxTcpWindowSize" 65535
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "TcpWindowSize" 65535
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "MaxFreeTcbs" 65535
@@ -62,26 +52,21 @@ function Invoke-GamingOptimization {
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "MaxUserPort" 65534
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "TcpTimedWaitDelay" 30
 
-    # Network Throttling
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF # Disabled
 
-    # Interface Specific (Nagle's Algorithm & Offloading)
     $adapters = Get-WmiObject Win32_NetworkAdapter | Where-Object { $_.PhysicalAdapter -eq $true }
     foreach ($nic in $adapters) {
         $pnpId = $nic.PNPDeviceID
         $guid = $nic.GUID
         
-        # TCP Interface Parameters (Nagle's Algorithm)
         $tcpKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$guid"
         if (Test-Path $tcpKey) {
             Set-Reg $tcpKey "TcpAckFrequency" 1
             Set-Reg $tcpKey "TCPNoDelay" 1
         }
 
-        # Adapter Advanced Properties
         $key = "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId\Device Parameters"
         
-        # Power Saving & Performance (Interrupt Moderation)
         Set-Reg $key "*InterruptModeration" "0" "String"
         Set-Reg $key "InterruptModeration" "0" "String"
         Set-Reg $key "AutoPowerSaveModeEnabled" "0" "String"
@@ -113,14 +98,11 @@ function Invoke-GamingOptimization {
         Set-Reg $key "WakeOnLink" "0" "String"
         Set-Reg $key "WolShutdownLinkSpeed" "2" "String"
 
-        # Disable Jumbo Packet (Latency)
         Set-Reg $key "JumboPacket" "1514" "String"
 
-        # Buffer Sizes (Throughput vs Latency trade-off - Balanced)
         Set-Reg $key "ReceiveBuffers" "1024" "String"
         Set-Reg $key "TransmitBuffers" "2048" "String"
 
-        # Offloads (Disable to reduce CPU latency on modern NICs)
         Set-Reg $key "IPChecksumOffloadIPv4" "0" "String"
         Set-Reg $key "LsoV1IPv4" "0" "String"
         Set-Reg $key "LsoV2IPv4" "0" "String"
@@ -132,17 +114,13 @@ function Invoke-GamingOptimization {
         Set-Reg $key "UDPChecksumOffloadIPv6" "0" "String"
         Set-Reg $key "UDPChecksumOffloadIPv4" "0" "String"
 
-        # RSS (Receive Side Scaling) - Enable for multi-core CPUs
         Set-Reg $key "RSS" "1" "String"
         Set-Reg $key "*NumRssQueues" "2" "String"
         Set-Reg $key "RSSProfile" "3" "String"
 
-        # Flow Control (Disable)
         Set-Reg $key "*FlowControl" "0" "String"
         Set-Reg $key "FlowControlCap" "0" "String"
 
-        # Interrupt Moderation (Disable for lowest latency, Enable for CPU saving)
-        # Setting to 0 (Disabled) for pure gaming latency
         Set-Reg $key "TxIntDelay" "0" "String"
         Set-Reg $key "TxAbsIntDelay" "0" "String"
         Set-Reg $key "RxIntDelay" "0" "String"
@@ -152,13 +130,8 @@ function Invoke-GamingOptimization {
     }
     }
 
-    # =========================================================================
-    # 2. SYSTEM & CPU OPTIMIZATION
-    # Impact: Expert | Benefit: Thread prioritization for Games
-    # =========================================================================
     Log "Applying System & CPU Optimizations..."
 
-    # System Profile (Gaming Priority)
     Log "[P10] Applying System Profile..."
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 0
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NoLazyMode" 1
@@ -175,16 +148,13 @@ function Invoke-GamingOptimization {
         Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Clock Rate" 10000
     }
 
-    # CSRSS Realtime
     Log "[P30] Optimizing CSRSS..."
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\csrss.exe\PerfOptions" "CpuPriorityClass" 4
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\csrss.exe\PerfOptions" "IoPriority" 3
     
-    # Network Throttling
     Log "[P40] Disabling Network Throttling..."
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF # Disabled
     
-    # Process Affinity Masking (Advanced)
     Log "[P60] Optimizing System Process Affinity..."
     try {
         $cpuCount = (Get-CimInstance Win32_Processor).NumberOfCores
@@ -197,18 +167,15 @@ function Invoke-GamingOptimization {
         }
     } catch {}
 
-    # Thread Priority Boost
     Log "[P80] Boosting Thread Priority..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 40
 
     Log "[P100] Gaming Tweaks Applied."
     try {
-        # Check if plan exists
         $plans = & powercfg /list 2>&1
         if ($plans -match "e9a42b02-d5df-448d-aa00-03f14749eb61") {
             & powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1 | Out-Null
         } else {
-            # Try to duplicate if missing
             & powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1 | Out-Null
             & powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61 2>&1 | Out-Null
         }
@@ -216,21 +183,14 @@ function Invoke-GamingOptimization {
         Log "Failed to set Ultimate Performance plan: $($_.Exception.Message)"
     }
 
-    # =========================================================================
-    # 3. GPU OPTIMIZATION (DirectX / Drivers)
-    # Impact: Advanced | Benefit: FPS stability, lower render latency
-    # =========================================================================
     Log "Applying GPU Optimizations..."
 
-    # HAGS (Hardware-Accelerated GPU Scheduling)
     if ($EnableHags) {
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 2
     }
 
-    # DirectX Contiguous Memory
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "DpiMapIommuContiguous" 1
 
-    # FSO (Full Screen Optimizations) & Game Bar
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_DSEBehavior" 0
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_FSEBehaviorMode" 0
     Set-Reg "HKCU:\SYSTEM\GameConfigStore" "GameDVR_EFSEFeatureFlags" 0
@@ -251,7 +211,6 @@ function Invoke-GamingOptimization {
         Set-Reg "HKCU:\System\GameConfigStore" "GameDVR_FSEBehaviorMode" 2
         Set-Reg "HKLM:\Software\Policies\Microsoft\Windows\GameDVR" "AllowGameDVR" 0
         
-        # Stop & Disable Xbox Services (that aren't needed for login)
         $xboxServices = @("XboxNetApiSvc", "XblAuthManager", "XblGameSave", "XboxGipSvc", "xbgm")
         foreach ($svc in $xboxServices) {
             try {
@@ -260,41 +219,33 @@ function Invoke-GamingOptimization {
             } catch {}
         }
         
-        # Disable Scheduled Tasks
         try {
             Unregister-ScheduledTask -TaskName "\Microsoft\XblGameSave\XblGameSaveTask" -Confirm:$false -ErrorAction SilentlyContinue
             Unregister-ScheduledTask -TaskName "\Microsoft\XblGameSave\XblGameSaveTaskLogon" -Confirm:$false -ErrorAction SilentlyContinue
         } catch {}
     }
 
-    # MPO (Multiplane Overlay) - Often causes flickering, disabling can help stability
     try { Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\Dwm" -Name "OverlayTestMode" -ErrorAction SilentlyContinue } catch {}
 
-    # Windowed Game Optimizations
     Set-Reg "HKCU:\SOFTWARE\Microsoft\DirectX\UserGpuPreferences" "DirectXUserGlobalSettings" "VRROptimizeEnable=0;SwapEffectUpgradeEnable=1;" "String"
 
-    # GPU P-States & MSI Mode
     $videoControllers = Get-WmiObject Win32_VideoController | Where-Object { $_.PNPDeviceID -match "PCI\\VEN_" }
     foreach ($gpu in $videoControllers) {
         $pnpId = $gpu.PNPDeviceID
         
-        # P-States (Disable Power Saving)
         $driverKey = Get-ItemProperty "HKLM:\SYSTEM\ControlSet001\Enum\$pnpId" -Name "Driver"
         if ($driverKey) {
             $classId = $driverKey.Driver
             Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$classId" "DisableDynamicPstate" 1
         }
 
-        # MSI Mode (Message Signaled Interrupts)
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties" "MSISupported" 1
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Enum\$pnpId\Device Parameters\Interrupt Management\Affinity Policy" "DevicePriority" 0
     }
 
-    # NVIDIA Specific Tweaks
     if ($videoControllers.Name -match "NVIDIA") {
         Log "Applying NVIDIA Specific Tweaks..."
         
-        # 1. Apply tweaks to the specific GPU Class Key (handling multiple GPUs/indices)
         foreach ($gpu in $videoControllers) {
             if ($gpu.Name -match "NVIDIA") {
                 $pnpId = $gpu.PNPDeviceID
@@ -305,7 +256,6 @@ function Invoke-GamingOptimization {
                     
                     Log "Targeting NVIDIA GPU at $nvKeyBase"
 
-                    # Latency & Performance
                     Set-Reg $nvKeyBase "D3PCLatency" 1
                     Set-Reg $nvKeyBase "F1TransitionLatency" 1
                     Set-Reg $nvKeyBase "LOWLATENCY" 1
@@ -326,7 +276,6 @@ function Invoke-GamingOptimization {
                     Set-Reg $nvKeyBase "vrrDeflickerMarginUs" 1
                     Set-Reg $nvKeyBase "vrrDeflickerMaxUs" 1
                     
-                    # Memory & System
                     Set-Reg $nvKeyBase "PreferSystemMemoryContiguous" 1
                     Set-Reg $nvKeyBase "RMHdcpKeyGlobZero" 1 # Disable HDCP
                     Set-Reg $nvKeyBase "TCCSupported" 0
@@ -338,7 +287,6 @@ function Invoke-GamingOptimization {
                     Set-Reg $nvKeyBase "TrackResetEngine" 0
                     Set-Reg $nvKeyBase "ValidateBlitSubRects" 0
                     
-                    # Shortcuts & Filters
                     Set-Reg $nvKeyBase "DesktopStereoShortcuts" 0
                     Set-Reg $nvKeyBase "FeatureControl" 4
                     Set-Reg $nvKeyBase "NVDeviceSupportKFilter" 0
@@ -346,14 +294,12 @@ function Invoke-GamingOptimization {
             }
         }
 
-        # 2. Global Driver Service Tweaks (nvlddmkm)
         $nvService = "HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm"
         if (Test-Path $nvService) {
             Log "Applying NVIDIA Driver Service Tweaks..."
             Set-Reg "$nvService\Global\NVTweak" "DisplayPowerSaving" 0
             Set-Reg $nvService "DisableWriteCombining" 1
             
-            # DPC Per Core
             Set-Reg $nvService "RmGpsPsEnablePerCpuCoreDpc" 1
             Set-Reg "$nvService\NVAPI" "RmGpsPsEnablePerCpuCoreDpc" 1
             Set-Reg "$nvService\Global\NVTweak" "RmGpsPsEnablePerCpuCoreDpc" 1
@@ -361,7 +307,6 @@ function Invoke-GamingOptimization {
             Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Power" "RmGpsPsEnablePerCpuCoreDpc" 1
         }
 
-        # 3. Telemetry & Tasks
         Log "Disabling NVIDIA Telemetry..."
         try { Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -Name "NvBackend" -ErrorAction SilentlyContinue } catch {}
         Set-Reg "HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client" "OptInOrOutPreference" 0
@@ -382,7 +327,6 @@ function Invoke-GamingOptimization {
             Disable-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue | Out-Null
         }
 
-        # 4. TDR (Timeout Detection and Recovery) - Disable
         Log "Disabling TDR..."
         $gfxDrivers = "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers"
         Set-Reg $gfxDrivers "TdrLevel" 0
@@ -394,7 +338,6 @@ function Invoke-GamingOptimization {
         Set-Reg $gfxDrivers "TdrTestMode" 0
     }
 
-    # AMD Specific Tweaks
     if ($videoControllers.Name -match "AMD" -or $videoControllers.Name -match "Radeon") {
         Log "Applying AMD Specific Tweaks..."
         foreach ($gpu in $videoControllers) {
@@ -407,7 +350,6 @@ function Invoke-GamingOptimization {
                     
                     Log "Targeting AMD GPU at $amdKeyBase"
 
-                    # Refresh Rate & Overlay
                     Set-Reg $amdKeyBase "3D_Refresh_Rate_Override_DEF" 0
                     Set-Reg $amdKeyBase "AllowSnapshot" 0
                     Set-Reg $amdKeyBase "AllowRSOverlay" "false" "String"
@@ -415,13 +357,11 @@ function Invoke-GamingOptimization {
                     Set-Reg $amdKeyBase "AllowSubscription" 0
                     Set-Reg $amdKeyBase "AutoColorDepthReduction_NA" 0
 
-                    # Anti-Aliasing & Filtering
                     Set-Reg $amdKeyBase "AAF_NA" 0
                     Set-Reg $amdKeyBase "AntiAlias_NA" "0" "String"
                     Set-Reg $amdKeyBase "ASTT_NA" "0" "String"
                     Set-Reg $amdKeyBase "AreaAniso_NA" "0" "String"
 
-                    # Power Gating & ULPS (Performance)
                     Set-Reg $amdKeyBase "DisableSAMUPowerGating" 1
                     Set-Reg $amdKeyBase "DisableUVDPowerGatingDynamic" 1
                     Set-Reg $amdKeyBase "DisableVCEPowerGating" 1
@@ -435,7 +375,6 @@ function Invoke-GamingOptimization {
                     Set-Reg $amdKeyBase "EnableUlps_NA" "0" "String"
                     Set-Reg $amdKeyBase "PP_SclkDeepSleepDisable" 1
 
-                    # Features
                     Set-Reg $amdKeyBase "KMD_DeLagEnabled" 1
                     Set-Reg $amdKeyBase "KMD_FRTEnabled" 0
                     Set-Reg $amdKeyBase "DisableDMACopy" 1
@@ -447,26 +386,18 @@ function Invoke-GamingOptimization {
         }
     }
 
-    # =========================================================================
-    # 4. INPUT OPTIMIZATION
-    # Impact: Safe | Benefit: 1:1 Mouse Movement
-    # =========================================================================
     Log "Optimizing Input Latency..."
     
-    # Disable Mouse Acceleration (Enhance Pointer Precision)
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseSpeed" "0" "String"
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold1" "0" "String"
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold2" "0" "String"
     
-    # 1:1 Pixel Mapping Curve
     Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseXCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
     Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseYCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
 
-    # Network Throttling Index (Expert)
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 0
 
-    # Low Latency Networking (TCP No Delay & Frequency)
     Log "Applying Low Latency Networking (TCP Tweaks)..."
     $interfaces = Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
     foreach ($interface in $interfaces) {
@@ -475,15 +406,11 @@ function Invoke-GamingOptimization {
         Set-Reg $interface.PSPath "TcpDelAckTicks" 0
     }
 
-    # Timer Resolution Enforcing
     Log "Enforcing Global Timer Resolution (0.5ms)..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" "GlobalTimerResolution" 5000 # 0.5ms
 
-    # Dynamic I/O Priority (High for Foreground Games)
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\Game.exe" "IoPriority" 3 # High
     
-    # Process Affinity Masking (Advanced)
-    # Moving system processes (DWM, Explorer) to the last cores
     Log "Optimizing System Process Affinity..."
     try {
         $cpuCount = (Get-CimInstance Win32_Processor).NumberOfCores
@@ -496,7 +423,6 @@ function Invoke-GamingOptimization {
         }
     } catch {}
 
-    # Thread Priority Boost (Win32PrioritySeparation)
     Log "Boosting Thread Priority for Gaming..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 40 # 28 Hex = 40 Decimal (Max Performance)
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Scheduling Category" "High" "String"
@@ -506,20 +432,15 @@ function Invoke-GamingOptimization {
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "GPU Priority" 8
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" "Clock Rate" 10000
 
-    # IRQ Affinity (Interrupt Steering) - Simplified
-    # Pushing Network/USB interrupts to non-primary cores (if possible via registry hints)
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\I/O System" "CountOperations" 0
 
-    # Disable Mouse Acceleration (Curve) - 1:1 Input
     Log "Disabling Mouse Acceleration (Raw Input)..."
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseSpeed" "0" "String"
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold1" "0" "String"
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseThreshold2" "0" "String"
-    # Nullify curves
     Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseXCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
     Set-Reg "HKCU:\Control Panel\Mouse" "SmoothMouseYCurve" ([byte[]](0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)) "Binary"
 
-    # Network Throttling Index (Expert)
     Log "Tuning TCP Chimney & Advanced Networking..."
     & netsh int tcp set global chimney=enabled 2>&1 | Out-Null
     & netsh int tcp set global rss=enabled 2>&1 | Out-Null
@@ -529,7 +450,6 @@ function Invoke-GamingOptimization {
     & netsh int tcp set global ecncapability=enabled 2>&1 | Out-Null
     & netsh int tcp set global timestamps=disabled 2>&1 | Out-Null
 
-    # Shader Cache Cleanup (DirectX)
     Log "Cleaning Shader Cache (DirectX)..."
     $shaderPaths = @(
         "$env:LOCALAPPDATA\D3DSCache\*",
@@ -540,21 +460,16 @@ function Invoke-GamingOptimization {
         try { Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue | Out-Null } catch {}
     }
 
-    # GPU Hardware-Accelerated GPU Scheduling (HAGS)
     if ($EnableHags) {
         Log "Enforcing Hardware-Accelerated GPU Scheduling (HAGS)..."
         Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 2
     }
 
-    # GPU & Randare Advanced (HDCP & GDI Scaling)
     Log "Applying Advanced GPU & Rendering Tweaks..."
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows" "GDIProcessHandleQuota" 10000
-    # Disable HDCP (NVIDIA)
     Set-Reg "HKLM:\SOFTWARE\NVIDIA Corporation\Global\System" "EnableHDCP" 0
-    # Disable HDCP (AMD)
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000" "Digital_Check_Disable" 1
 
-    # Message Signaled Interrupts (MSI Mode) for GPU and USB
     Log "Enforcing MSI Mode for GPU and USB Controllers..."
     $devices = Get-WmiObject Win32_PnPEntity | Where-Object { $_.Service -match "nvlddmkm|amdgpu|i915|usb" }
     foreach ($dev in $devices) {
@@ -566,24 +481,18 @@ function Invoke-GamingOptimization {
         }
     }
 
-    # Intel E-Cores Optimization (Intel 12th+ Gen)
     try {
         $cpu = Get-CimInstance Win32_Processor
         if ($cpu.Manufacturer -match "Intel") {
             Log "Intel CPU Detected. Checking for Hybrid Architecture (E-Cores)..."
-            # We check if it's 12th Gen or newer by model name or by checking for heterogeneous scheduling policy
             if ($cpu.Name -match "i[3579]-1[2345]") {
                 Log "Hybrid CPU Detected (12th Gen+). Optimizing thread scheduling for P-Cores..."
-                # Use PowerCfg to prefer P-Cores for short and long running threads
-                # Heterogeneous thread scheduling policy (Subgroup: 54533251-82be-4824-96c1-47b60b740d00, Setting: 7f2f5cfa-1f7b-4b4d-82c0-6671c0429000)
-                # Value 0 = All processors, 1 = Performant processors (P-Cores)
                 & powercfg /setacvalueindex SCHEME_CURRENT 54533251-82be-4824-96c1-47b60b740d00 7f2f5cfa-1f7b-4b4d-82c0-6671c0429000 1 2>&1 | Out-Null
                 & powercfg /setacvalueindex SCHEME_CURRENT 54533251-82be-4824-96c1-47b60b740d00 93b2201f-9bbc-42be-8811-945c3a2130c0 1 2>&1 | Out-Null
                 & powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
             }
         } elseif ($cpu.Manufacturer -match "AMD") {
             Log "AMD CPU Detected. Applying AMD-specific core parking optimization..."
-            # For AMD, we ensure core parking is minimal to keep all cores ready
             & powercfg /setacvalueindex SCHEME_CURRENT 54533251-82be-4824-96c1-47b60b740d00 0cc5b647-c30e-4540-a213-566968a9510e 100 2>&1 | Out-Null
             & powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
         }
@@ -601,7 +510,6 @@ function Invoke-NvidiaProfile {
 
     Log "Applying NVIDIA Inspector Profile..."
 
-    # Hardcoded configuration to remove settings.json dependency
     $zipUrl = "https://github.com/Orbmu2k/nvidiaProfileInspector/releases/download/2.4.0.19/nvidiaProfileInspector.zip"
     $profileUrl = "https://github.com/xhowlzzz/IlumnulOS/raw/main/Tools/IlumnulOS.nip"
 
@@ -627,7 +535,6 @@ function Invoke-NvidiaProfile {
         Log "Extracting..."
         try {
             Add-Type -AssemblyName System.IO.Compression.FileSystem
-            # Clean destination to simulate -Force
             if (Test-Path "$destDir\nvidiaProfileInspector.exe") { Remove-Item "$destDir\*" -Recurse -Force -ErrorAction SilentlyContinue }
             [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $destDir)
         } catch {
@@ -646,7 +553,6 @@ function Invoke-NvidiaProfile {
         Log "Applying Profile..."
         if (Test-Path $exePath) {
             $absProfilePath = (Get-Item $profilePath).FullName
-            # Use ShellExecute to ensure the success popup can appear correctly
             Start-Process -FilePath $exePath -ArgumentList "`"$absProfilePath`"" -Wait
             Log "NVIDIA Profile applied. You should see a success message."
         } else {
@@ -656,7 +562,6 @@ function Invoke-NvidiaProfile {
     } catch {
         Log "Error applying NVIDIA profile: $_"
     } finally {
-        # Cleanup temp zip
         if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue }
         if (Test-Path $tempDir) { Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
     }
