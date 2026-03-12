@@ -1,10 +1,6 @@
-# IlumnulOS CLI - Optimized by Assistant
-# Windows 11 Optimization & Debloating Tool - CLI Edition
-
-# Load required assemblies
+﻿
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# Self-elevation to Administrator
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")) {
     $argList = "-File `"$($MyInvocation.MyCommand.Path)`""
     Start-Process powershell -Verb RunAs -ArgumentList $argList
@@ -16,7 +12,6 @@ try {
     Add-Type -AssemblyName WindowsBase -ErrorAction SilentlyContinue
 } catch {}
 
-# Initialize Paths
 $ScriptPath = $PSScriptRoot
 if (-not $ScriptPath) {
     if ($MyInvocation.MyCommand.Path) {
@@ -25,10 +20,8 @@ if (-not $ScriptPath) {
         $ScriptPath = Get-Location
     }
 }
-# Normalize path
 if ($ScriptPath) { $ScriptPath = $ScriptPath.TrimEnd('\') }
 
-# Bootstrapper: Check if modules exist, if not download them (simplified)
 if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
     Write-Host "Remote Execution or Missing Modules Detected. Initializing Bootstrapper..." -ForegroundColor Cyan
     
@@ -59,8 +52,23 @@ if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
         @{ Remote = "Modules/Debloat.psm1"; Local = "$InstallPath\Modules\Debloat.psm1" },
         @{ Remote = "Modules/Gaming.psm1"; Local = "$InstallPath\Modules\Gaming.psm1" },
         @{ Remote = "Modules/Optimize.psm1"; Local = "$InstallPath\Modules\Optimize.psm1" },
-        @{ Remote = "Modules/RemoveAI.psm1"; Local = "$InstallPath\Modules\RemoveAI.psm1" }
+        @{ Remote = "Modules/RemoveAI.psm1"; Local = "$InstallPath\Modules\RemoveAI.psm1" },
+        @{ Remote = "Modules/IlumnulOS.mp3"; Local = "$InstallPath\Modules\IlumnulOS.mp3" }
     )
+
+    # Modern Cursor Files
+    $cursorFiles = @(
+        "ModernCursorScheme.reg", "alternate.cur", "beam.cur", "busy.ani", "dgn1.cur", "dgn2.cur",
+        "handwriting.cur", "help.cur", "horz.cur", "link.cur", "move.cur", "person.cur",
+        "pin.cur", "pointer.cur", "precision.cur", "unavailable.cur", "vert.cur", "working.ani"
+    )
+    
+    $cursorPath = "$InstallPath\Modules\ModernCursors"
+    New-Item -ItemType Directory -Path $cursorPath -Force | Out-Null
+    
+    foreach ($file in $cursorFiles) {
+        $requiredFiles += @{ Remote = "Modules/ModernCursors/$file"; Local = "$cursorPath\$file" }
+    }
 
     $hasFailure = $false
     foreach ($file in $requiredFiles) {
@@ -73,14 +81,12 @@ if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
     $ScriptPath = $InstallPath
 }
 
-# Import Modules
 Write-Host "Importing modules..." -ForegroundColor Cyan
 if (Test-Path "$ScriptPath\Modules\Debloat.psm1") { Import-Module "$ScriptPath\Modules\Debloat.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\Optimize.psm1") { Import-Module "$ScriptPath\Modules\Optimize.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\Gaming.psm1") { Import-Module "$ScriptPath\Modules\Gaming.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\RemoveAI.psm1") { Import-Module "$ScriptPath\Modules\RemoveAI.psm1" -Force }
 
-# Audio Helper (MCI API for maximum reliability)
 $mciSource = @"
 using System;
 using System.Runtime.InteropServices;
@@ -119,7 +125,6 @@ function Stop-Music {
     [AudioPlayer]::Stop()
 }
 
-# CLI Color & UI Helpers
 function Get-GradientText {
     param([string]$Text, [int]$R1, [int]$G1, [int]$B1, [int]$R2, [int]$G2, [int]$B2)
     $len = $Text.Length
@@ -136,7 +141,7 @@ function Get-GradientText {
 
 function Write-Spinner {
     param([string]$Message)
-    $frames = @("⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏")
+    $frames = @("â ‹","â ™","â ¹","â ¸","â ¼","â ´","â ¦","â §","â ‡","â ")
     $esc = [char]27
     $cyan = "$esc[36m"
     $reset = "$esc[0m"
@@ -168,7 +173,6 @@ function Write-Typewriter {
     Write-Host ""
 }
 
-# CLI Logger Helper (Updated with Icons)
 $cliLogger = [Action[string]] { 
     param($msg) 
     $timestamp = Get-Date -Format "HH:mm:ss"
@@ -176,7 +180,6 @@ $cliLogger = [Action[string]] {
     $bold = "$esc[1m"
     $reset = "$esc[0m"
     
-    # Status Icons
     $iconOk = "$([char]0x2714)"      # Checkmark
     $iconFail = "$([char]0x2718)"    # X
     $iconWarn = "$([char]0x26A0)"    # Warning Triangle
@@ -191,7 +194,6 @@ $cliLogger = [Action[string]] {
     } elseif ($msg -match 'Removing' -or $msg -match 'Disabling' -or $msg -match 'Purging') {
         Write-Host "[$timestamp] $bold$([char]0x2503)$reset " -NoNewline -ForegroundColor Gray; Write-Host "$iconSkull $msg" -ForegroundColor Magenta
     } elseif ($msg -match '^\[\d/\d\]') {
-        # Section Headers
         $headerText = " $msg "
         $borderLine = ([string][char]0x2550) * ($headerText.Length)
         Write-Host ""
@@ -210,7 +212,6 @@ function Write-ProgressBar {
     $filled = [int]($Current / $Total * $width)
     $empty = $width - $filled
     
-    # Dynamic Color based on percent
     $color = "Red"
     if ($percent -ge 50) { $color = "Yellow" }
     if ($percent -ge 90) { $color = "Green" }
@@ -232,7 +233,6 @@ function Write-HwLine {
     
     $fullText = "$Label : $Value"
     if ($fullText.Length -gt $Width) { 
-        # Truncate value if too long
         $maxValLen = $Width - $Label.Length - 3
         if ($maxValLen -gt 0) {
             $Value = $Value.Substring(0, $maxValLen)
@@ -258,7 +258,6 @@ function Show-Header {
     $bold = "$esc[1m"
     $reset = "$esc[0m"
 
-    # Gradient ASCII Art
     $lines = @(
         "    __  __                          __ ____  _____",
         "   / / / /_  ______ ___  ____  __  __/ / __ \/ ___/",
@@ -273,7 +272,6 @@ function Show-Header {
     $subtitle = "          Windows 11 Ultimate Optimization Tool"
     Write-Host (Get-GradientText $subtitle 0 255 255 255 255 255)
     
-    # Hardware Info Box
     $hw = Get-HardwareInfo
     $esc = [char]27
     $cyan = "$esc[36m"
@@ -328,17 +326,14 @@ function Get-MenuSelection {
     }
 }
 
-# Main Entry Point
 $global:MusicEnabled = $true
 Show-Header
 Write-Typewriter " [SYSTEM] Initializing IlumnulOS Ultimate v2.0..." -Delay 15 -Color Cyan
 Write-Typewriter " [SYSTEM] Loading modules and verifying environment..." -Delay 10 -Color Gray
 Start-Sleep -Seconds 1
 
-# Main Loop - Pre-calculate Hardware Info ONCE
 $global:cachedHwInfo = Get-HardwareInfo
 
-# Optimized Show-Header using Cached Info
 function Show-Header-Optimized {
     param([bool]$clear = $true)
     if ($clear) { Clear-Host }
@@ -346,7 +341,6 @@ function Show-Header-Optimized {
     $bold = "$esc[1m"
     $reset = "$esc[0m"
 
-    # Gradient ASCII Art
     $lines = @(
         "    __  __                          __ ____  _____",
         "   / / / /_  ______ ___  ____  __  __/ / __ \/ ___/",
@@ -361,7 +355,6 @@ function Show-Header-Optimized {
     $subtitle = "          Windows 11 Ultimate Optimization Tool"
     Write-Host (Get-GradientText $subtitle 0 255 255 255 255 255)
     
-    # Use Cached Hardware Info
     $hw = $global:cachedHwInfo
     $cyan = "$esc[36m"
     $gray = "$esc[90m"
@@ -380,7 +373,6 @@ function Show-Header-Optimized {
     Write-Host "  $borderLine" -ForegroundColor Gray
 }
 
-# Main Loop
 while ($true) {
     $esc = [char]27
     $green = "$esc[32m"
@@ -391,15 +383,12 @@ while ($true) {
     
     $menuOptions = @("Start Optimization (Full Suite)", "Music: [$musicToggle]", "Exit")
     
-    # Inline Menu Logic for Maximum Speed
     $selectedIndex = 0
     $inMenu = $true
     
-    # Draw initial header
     Show-Header-Optimized -clear $true
     
     while ($inMenu) {
-        # Only redraw menu part by moving cursor
         $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates(0, 15) # Adjust based on header height
         
         Write-Host ""
@@ -407,7 +396,6 @@ while ($true) {
         $bold = "$esc[1m"
         
         for ($i = 0; $i -lt $menuOptions.Count; $i++) {
-            # Clear line first
             Write-Host (" " * 80) -NoNewline 
             $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates(0, $Host.UI.RawUI.CursorPosition.Y)
             
@@ -452,14 +440,12 @@ while ($true) {
         Write-Typewriter " [OPTIMIZE] Starting system-wide optimization..." -Delay 20 -Color Green
         Start-Sleep -Seconds 1
         
-        # Draw the Log Box (Fixed Terminal Window)
         Write-Host ""
         $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 100) + ([string][char]0x2557)
         $boxMid = ([string][char]0x2551)
         $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 100) + ([string][char]0x255D)
         
         Write-Host "  $gray$boxTop$reset"
-        # We need to reserve space for the log lines. Let's say 10 lines of logs.
         $logHeight = 10
         $logStartY = $Host.UI.RawUI.CursorPosition.Y
         
@@ -468,13 +454,11 @@ while ($true) {
         }
         Write-Host "  $gray$boxBot$reset"
         
-        # Store the Y coordinates for the log area
         $global:LogAreaTop = $logStartY
         $global:LogAreaBottom = $logStartY + $logHeight
         $global:LogCurrentLine = 0
         $global:LogHistory = New-Object System.Collections.Generic.List[string]
 
-        # Log File Setup
         $desktopPath = [Environment]::GetFolderPath("Desktop")
         $logFilePath = "$desktopPath\IlumnulOS_Log.txt"
         $logHeader = @"
@@ -486,7 +470,6 @@ while ($true) {
 "@
         Set-Content -Path $logFilePath -Value $logHeader -Force
 
-        # Override the logger to print INSIDE the box AND write to file
         $cliLogger = [Action[string]] { 
             param($msg) 
             $timestamp = Get-Date -Format "HH:mm:ss"
@@ -494,21 +477,15 @@ while ($true) {
             $bold = "$esc[1m"
             $reset = "$esc[0m"
             
-            # 1. Write to Log File (Clean Text)
             $cleanMsg = $msg -replace '\x1b\[[0-9;]*m', '' # Strip ANSI codes
             $logEntry = "[$timestamp] $cleanMsg"
             Add-Content -Path $logFilePath -Value $logEntry -ErrorAction SilentlyContinue
-
-            # 2. UI Display Logic
-            # Status Icons
 
     $iconOk = "$([char]0x2714)"      # Checkmark
     $iconFail = "$([char]0x2718)"    # X
     $iconWarn = "$([char]0x26A0)"    # Warning Triangle
     $iconSkull = "$([char]0x2620)"   # Skull
     
-    # Progress Bar logic (embedded in log)
-    # Format: [||||||||||  ] 80%
     if ($msg -match '^\[P(\d+)\] (.*)') {
         $pct = [int]$matches[1]
         $txt = $matches[2]
@@ -530,86 +507,66 @@ while ($true) {
         $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $msg"
     }
 
-            # Add to history
             $global:LogHistory.Add($formattedMsg)
             
-            # Logic to scroll: If history > height, we take the last N items
             $displayLines = $global:LogHistory
             if ($global:LogHistory.Count -gt $logHeight) {
                 $startIndex = $global:LogHistory.Count - $logHeight
                 $displayLines = $global:LogHistory.GetRange($startIndex, $logHeight)
             }
             
-            # Redraw the log area
             $currentY = $global:LogAreaTop
             foreach ($line in $displayLines) {
-                # Clear the inner part of the line (70 chars wide approx, excluding borders)
-                # Border is at X=2 (start) and X=73 (end) approx. 
-                # Actually X=2 is the start of the string printed "  ║". So the text starts at X=4.
-                # Box width is 70 chars of content.
                 
-                # We need to strip ANSI codes for length calculation to pad correctly, but that's complex in PS.
-                # Simplification: Overwrite with spaces then print.
-                
-                # Move to text start position
                 $coord = New-Object System.Management.Automation.Host.Coordinates 4, $currentY
                 $Host.UI.RawUI.CursorPosition = $coord
                 Write-Host (" " * 98) -NoNewline # Clear content
                 
                 $Host.UI.RawUI.CursorPosition = $coord
                 
-                # Truncate if too long to fit in box
                 if ($line.Length -gt 98) { $line = $line.Substring(0, 98) }
                 Write-Host $line -NoNewline
                 
                 $currentY++
             }
             
-            # Reset cursor to below the box to avoid messing up other output if any
             $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, ($global:LogAreaBottom + 1)
         }
         
-        # 1. System Optimization
-        # Force a small delay to let UI stabilize
         Start-Sleep -Milliseconds 200
         $cliLogger.Invoke("[1/6] System Performance Optimization")
         
-        # NOTE: Write-Spinner is removed because it writes outside the box and messes up cursor position.
-        # Replacing with log messages.
         $cliLogger.Invoke("Analyzing System Configuration...")
         Invoke-SystemOptimization -Logger $cliLogger
         
-        # 2. Gaming Optimization
+        $cliLogger.Invoke("Applying Group Policy Tweaks...")
+        Invoke-GroupPolicyTweaks -Logger $cliLogger
+        
+        $cliLogger.Invoke("Applying Modern Cursor Scheme...")
+        Invoke-ModernCursor -Logger $cliLogger
+        
         $cliLogger.Invoke("[2/6] Gaming and Latency Optimization")
         $cliLogger.Invoke("Applying Gaming Tweaks...")
         Invoke-GamingOptimization -Logger $cliLogger -Options @{ GameMode = $true }
         
-        # 3. NVIDIA Profile Tweak
         $cliLogger.Invoke("[3/6] NVIDIA Profile Inspector Tweak")
         $cliLogger.Invoke("Checking GPU Settings...")
         Invoke-NvidiaProfile -Logger $cliLogger
         
-        # 4. Privacy and Debloat
         $cliLogger.Invoke("[4/6] Privacy and Debloat")
         $cliLogger.Invoke("Removing Bloatware...")
         Remove-Bloatware -Logger $cliLogger
         
-        # 5. AI Removal
         $cliLogger.Invoke("[5/6] AI and Copilot Removal")
         $cliLogger.Invoke("Purging AI Components...")
         Remove-WindowsAI -Logger $cliLogger
         
-        # 6. Final Cleanup
         $cliLogger.Invoke("[6/6] Finalizing and Cleanup")
-        $cliLogger.Invoke("Cleaning Disk...")
+        $cliLogger.Invoke("Running Ultimate Cleanup...")
         ipconfig /flushdns | Out-Null
         $cliLogger.Invoke("DNS Cache Flushed.")
         
-        $cliLogger.Invoke("Cleaning temporary files...")
-        $tempPaths = @("$env:TEMP\*", "$env:SystemRoot\Temp\*")
-        foreach ($path in $tempPaths) {
-            try { Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue | Out-Null } catch {}
-        }
+        Invoke-UltimateCleanup -Logger $cliLogger
         
         $cliLogger.Invoke("Restarting Explorer to apply changes...")
         Stop-Process -Name Explorer -Force -ErrorAction SilentlyContinue
@@ -617,7 +574,6 @@ while ($true) {
         
         if ($global:MusicEnabled) { Stop-Music }
         
-        # Final Scorecard
         Write-Host ""
         $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 52) + ([string][char]0x2557)
         $boxMid = ([string][char]0x2551)
