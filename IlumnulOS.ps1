@@ -56,7 +56,6 @@ if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
     }
 
     $requiredFiles = @(
-        @{ Remote = "Modules/Debloat.psm1"; Local = "$InstallPath\Modules\IlumnulOS.mp3" },
         @{ Remote = "Modules/Debloat.psm1"; Local = "$InstallPath\Modules\Debloat.psm1" },
         @{ Remote = "Modules/Gaming.psm1"; Local = "$InstallPath\Modules\Gaming.psm1" },
         @{ Remote = "Modules/Optimize.psm1"; Local = "$InstallPath\Modules\Optimize.psm1" },
@@ -76,7 +75,6 @@ if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
 
 # Import Modules
 Write-Host "Importing modules..." -ForegroundColor Cyan
-if (Test-Path "$ScriptPath\Modules\IlumnulOS.mp3") { Import-Module "$ScriptPath\Modules\IlumnulOS.mp3" -Force }
 if (Test-Path "$ScriptPath\Modules\Debloat.psm1") { Import-Module "$ScriptPath\Modules\Debloat.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\Optimize.psm1") { Import-Module "$ScriptPath\Modules\Optimize.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\Gaming.psm1") { Import-Module "$ScriptPath\Modules\Gaming.psm1" -Force }
