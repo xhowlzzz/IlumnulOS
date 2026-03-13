@@ -1,4 +1,4 @@
-﻿function Invoke-SystemOptimization {
+function Invoke-SystemOptimization {
     param(
         [Action[string]]$Logger,
         [hashtable]$Options = @{}
@@ -16,12 +16,20 @@
     $DisableHibernation = if ($Options.ContainsKey("DisableHibernation")) { [bool]$Options.DisableHibernation } else { $true }
     $DisableSearchIndexing = if ($Options.ContainsKey("DisableSearchIndexing")) { [bool]$Options.DisableSearchIndexing } else { $false }
     $TuneVisualEffects = if ($Options.ContainsKey("VisualEffects")) { [bool]$Options.VisualEffects } else { $true }
+    $PreserveVBS = if ($Options.ContainsKey("PreserveVBS")) { [bool]$Options.PreserveVBS } else { $true }
+    $HighRiskTweaks = if ($Options.ContainsKey("HighRiskTweaks")) { [bool]$Options.HighRiskTweaks } else { $true }
+    $EnableHAGS = if ($Options.ContainsKey("EnableHAGS")) { [bool]$Options.EnableHAGS } else { $HighRiskTweaks }
+    $TuneMemoryAgent = if ($Options.ContainsKey("TuneMemoryAgent")) { [bool]$Options.TuneMemoryAgent } else { $HighRiskTweaks }
+    $TuneMMCSS = if ($Options.ContainsKey("TuneMMCSS")) { [bool]$Options.TuneMMCSS } else { $HighRiskTweaks }
 
     function Set-Reg {
         param($Path, $Name, $Value, $Type = "DWord")
         try {
             $Path = $Path.TrimEnd('\')
-            if (!(Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
+            if ($Path -like "HKU:*" -and -not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+                New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
+            }
+            if (!(Test-Path $Path)) { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null }
             
             if ([string]::IsNullOrEmpty($Name)) {
                 Set-Item -Path $Path -Value $Value -Force -ErrorAction Stop
@@ -96,9 +104,7 @@
     & fsutil behavior set disabledeletenotify 0 2>&1 | Out-Null
     & fsutil behavior set encryptpagingfile 0 2>&1 | Out-Null
 
-    Log "Disabling Memory Compression..."
-
-    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 38
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 0x28
 
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "LargeSystemCache" 1
 
@@ -107,12 +113,15 @@
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "SystemPages" 0xFFFFFFFF
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "IoPageLockLimit" 16777216 # Optimized for 16GB+
     
-    Log "Disabling Memory Compression..."
-    try {
-        if (Get-Service "SysMain" -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq 'Running'}) {
-             & Disable-MMAgent -MemoryCompression -ErrorAction SilentlyContinue | Out-Null
-        }
-    } catch {}
+    if ($TuneMemoryAgent) {
+        Log "Disabling Memory Compression & Page Combining..."
+        try {
+            if (Get-Command -Name Disable-MMAgent -ErrorAction SilentlyContinue) {
+                Disable-MMAgent -MemoryCompression -ErrorAction SilentlyContinue | Out-Null
+                Disable-MMAgent -PageCombining -ErrorAction SilentlyContinue | Out-Null
+            }
+        } catch {}
+    }
 
     Log "Enabling Large Page Support..."
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "LargePageMinimum" 0xFFFFFFFF
@@ -794,7 +803,7 @@
 
     Log "Applying optimizerNXT Performance tweaks..."
 
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 1
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 10
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NoLazyMode" 1
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "AlwaysOn" 1
     
@@ -803,6 +812,9 @@
     Set-Reg $mmGames "Priority" 6
     Set-Reg $mmGames "Scheduling Category" "High" "String"
     Set-Reg $mmGames "SFIO Priority" "High" "String"
+    if ($TuneMMCSS) {
+        Set-Reg $mmGames "Latency Sensitive" "True" "String"
+    }
 
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF
 
@@ -844,8 +856,8 @@
     Log "Applying Additional Performance & FPS Tweaks..."
 
     # System Responsiveness & Priority
-    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 0
-    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 0x26
+    Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" 10
+    Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" 0x28
 
     # Network Throttling & Latency
     Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" 0xFFFFFFFF
@@ -853,6 +865,12 @@
     # GPU Tweaks (NVIDIA/AMD) - MSI Mode, P-States, HDCP
     # Note: Specific GPU GUIDs are dynamic, but we can set global flags where applicable
     Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "PlatformSupportMiracast" 0
+    if ($HighRiskTweaks) {
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "DpiMapIommuContiguous" 1
+    }
+    if ($EnableHAGS) {
+        Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" 2
+    }
     
     # Input Latency Reduction
     Set-Reg "HKCU:\Control Panel\Mouse" "MouseSpeed" "0" "String"
@@ -911,7 +929,10 @@ function Invoke-GroupPolicyTweaks {
         param($Path, $Name, $Value, $Type = "DWord")
         try {
             $Path = $Path.TrimEnd('\')
-            if (!(Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
+            if ($Path -like "HKU:*" -and -not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+                New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
+            }
+            if (!(Test-Path $Path)) { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null }
             if ([string]::IsNullOrEmpty($Name)) {
                 Set-Item -Path $Path -Value $Value -Force -ErrorAction Stop
             } else {

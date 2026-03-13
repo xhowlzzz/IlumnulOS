@@ -1,4 +1,4 @@
-﻿
+
 function Remove-WindowsAI {
     param(
         [Action[string]]$Logger,
@@ -15,7 +15,10 @@ function Remove-WindowsAI {
         param($Path, $Name, $Value, $Type = "DWord")
         try {
             $Path = $Path.TrimEnd('\')
-            if (!(Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
+            if ($Path -like "HKU:*" -and -not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+                New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
+            }
+            if (!(Test-Path $Path)) { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null }
             
             if ([string]::IsNullOrEmpty($Name)) {
                 Set-Item -Path $Path -Value $Value -Force -ErrorAction Stop
