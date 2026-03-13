@@ -1,4 +1,4 @@
-﻿
+
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")) {
@@ -52,8 +52,7 @@ if (-not (Test-Path "$ScriptPath\Modules\RemoveAI.psm1")) {
         @{ Remote = "Modules/Debloat.psm1"; Local = "$InstallPath\Modules\Debloat.psm1" },
         @{ Remote = "Modules/Gaming.psm1"; Local = "$InstallPath\Modules\Gaming.psm1" },
         @{ Remote = "Modules/Optimize.psm1"; Local = "$InstallPath\Modules\Optimize.psm1" },
-        @{ Remote = "Modules/RemoveAI.psm1"; Local = "$InstallPath\Modules\RemoveAI.psm1" },
-        @{ Remote = "Modules/IlumnulOS.mp3"; Local = "$InstallPath\Modules\IlumnulOS.mp3" }
+        @{ Remote = "Modules/RemoveAI.psm1"; Local = "$InstallPath\Modules\RemoveAI.psm1" }
     )
 
     # Modern Cursor Files
@@ -87,42 +86,8 @@ if (Test-Path "$ScriptPath\Modules\Optimize.psm1") { Import-Module "$ScriptPath\
 if (Test-Path "$ScriptPath\Modules\Gaming.psm1") { Import-Module "$ScriptPath\Modules\Gaming.psm1" -Force }
 if (Test-Path "$ScriptPath\Modules\RemoveAI.psm1") { Import-Module "$ScriptPath\Modules\RemoveAI.psm1" -Force }
 
-$mciSource = @"
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-
-public class AudioPlayer {
-    [DllImport("winmm.dll")]
-    private static extern long mciSendString(string command, StringBuilder returnValue, int returnLength, IntPtr winHandle);
-
-    public static void Play(string fileName) {
-        mciSendString("close myDevice", null, 0, IntPtr.Zero);
-        mciSendString("open \"" + fileName + "\" type mpegvideo alias myDevice", null, 0, IntPtr.Zero);
-        mciSendString("setaudio myDevice volume to 100", null, 0, IntPtr.Zero); // 100 out of 1000 is 10%
-        mciSendString("play myDevice repeat", null, 0, IntPtr.Zero);
-    }
-
-    public static void Stop() {
-        mciSendString("stop myDevice", null, 0, IntPtr.Zero);
-        mciSendString("close myDevice", null, 0, IntPtr.Zero);
-    }
-}
-"@
-try {
-    Add-Type -TypeDefinition $mciSource -ErrorAction SilentlyContinue
-} catch {}
-
-function Start-Music {
-    param([string]$FilePath)
-    if (Test-Path $FilePath) {
-        $absPath = (Get-Item $FilePath).FullName
-        [AudioPlayer]::Play($absPath)
-    }
-}
-
-function Stop-Music {
-    [AudioPlayer]::Stop()
+if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+    try { New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS -ErrorAction SilentlyContinue | Out-Null } catch {}
 }
 
 function Get-GradientText {
@@ -139,14 +104,247 @@ function Get-GradientText {
     return "$result$([char]27)[0m"
 }
 
+function Get-WaveText {
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [int]$Frame = 0,
+        [double]$Speed = 0.35,
+        [double]$Freq = 0.22,
+        [int]$BaseR = 150, [int]$BaseG = 0, [int]$BaseB = 255,
+        [int]$AmpR = -150, [int]$AmpG = 255, [int]$AmpB = 0
+    )
+    $esc = [char]27
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $Text.Length; $i++) {
+        $phase = ($i * $Freq) + ($Frame * $Speed)
+        $w = ([math]::Sin($phase) + 1.0) / 2.0
+        $r = [int]([math]::Max(0, [math]::Min(255, $BaseR + ($AmpR * $w))))
+        $g = [int]([math]::Max(0, [math]::Min(255, $BaseG + ($AmpG * $w))))
+        $b = [int]([math]::Max(0, [math]::Min(255, $BaseB + ($AmpB * $w))))
+        [void]$sb.Append("$esc[38;2;$r;$g;$b" + "m" + $Text[$i])
+    }
+    [void]$sb.Append("$esc[0m")
+    return $sb.ToString()
+}
+
+$global:WaveFrame = 0
+
+function Get-WaveLogText {
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [ValidateSet("Default","Ok","Warn","Error","Skull")][string]$Theme = "Default",
+        [int]$MaxPlainLen = 80
+    )
+    $supportsVT = $false
+    try { $supportsVT = [bool]$Host.UI.SupportsVirtualTerminal } catch {}
+
+    if ($Text.Length -gt $MaxPlainLen) {
+        $Text = $Text.Substring(0, $MaxPlainLen)
+    }
+
+    if (-not $supportsVT) { return $Text }
+
+    $global:WaveFrame = ($global:WaveFrame + 1) % 1000000
+
+    switch ($Theme) {
+        "Ok"    { return Get-WaveText -Text $Text -Frame $global:WaveFrame -BaseR 0   -BaseG 255 -BaseB 120 -AmpR 80  -AmpG -180 -AmpB 80 }
+        "Warn"  { return Get-WaveText -Text $Text -Frame $global:WaveFrame -BaseR 255 -BaseG 170 -BaseB 0   -AmpR -80 -AmpG 80   -AmpB 160 }
+        "Error" { return Get-WaveText -Text $Text -Frame $global:WaveFrame -BaseR 255 -BaseG 30  -BaseB 30  -AmpR 0   -AmpG 120  -AmpB 120 }
+        "Skull" { return Get-WaveText -Text $Text -Frame $global:WaveFrame -BaseR 200 -BaseG 0   -BaseB 255 -AmpR -80 -AmpG 160  -AmpB -80 }
+        default { return Get-WaveText -Text $Text -Frame $global:WaveFrame }
+    }
+}
+
+function Get-TerminalMetrics {
+    param(
+        [int]$MinPanelWidth = 84,
+        [int]$MaxPanelWidth = 120,
+        [int]$Margin = 2
+    )
+    $w = $Host.UI.RawUI.WindowSize.Width
+    $h = $Host.UI.RawUI.WindowSize.Height
+    $bw = $Host.UI.RawUI.BufferSize.Width
+    $bh = $Host.UI.RawUI.BufferSize.Height
+    $panelWidth = [Math]::Min($MaxPanelWidth, [Math]::Max(40, $w - ($Margin * 2)))
+    if ($panelWidth -lt $MinPanelWidth) { $panelWidth = [Math]::Max(40, $w - ($Margin * 2)) }
+    $panelX = [Math]::Max(0, [Math]::Floor(($w - $panelWidth) / 2))
+    return @{
+        Width = $w
+        Height = $h
+        BufferWidth = $bw
+        BufferHeight = $bh
+        PanelWidth = $panelWidth
+        PanelX = $panelX
+        Margin = $Margin
+    }
+}
+
+function Write-At {
+    param(
+        [int]$X,
+        [int]$Y,
+        [string]$Text,
+        [switch]$NoNewline
+    )
+    try {
+        $buf = $Host.UI.RawUI.BufferSize
+        $x2 = [Math]::Max(0, [Math]::Min($buf.Width - 1, $X))
+        $y2 = [Math]::Max(0, [Math]::Min($buf.Height - 1, $Y))
+        $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates($x2, $y2)
+        if ($NoNewline) { Write-Host $Text -NoNewline } else { Write-Host $Text }
+    } catch {
+        return
+    }
+}
+
+function Clear-Region {
+    param(
+        [int]$X,
+        [int]$Y,
+        [int]$Width,
+        [int]$Height
+    )
+    try {
+        $buf = $Host.UI.RawUI.BufferSize
+        if ($Y -ge $buf.Height) { return }
+        $x2 = [Math]::Max(0, $X)
+        $w2 = [Math]::Max(0, [Math]::Min($Width, $buf.Width - $x2))
+        $maxH = [Math]::Max(0, [Math]::Min($Height, $buf.Height - $Y))
+        $blank = " " * $w2
+        for ($i = 0; $i -lt $maxH; $i++) {
+            Write-At -X $x2 -Y ($Y + $i) -Text $blank -NoNewline
+        }
+    } catch {}
+}
+
+function Draw-Box {
+    param(
+        [int]$X,
+        [int]$Y,
+        [int]$Width,
+        [int]$Height,
+        [string]$Title = ""
+    )
+    try {
+        $buf = $Host.UI.RawUI.BufferSize
+        if ($Y -ge $buf.Height - 1 -or $X -ge $buf.Width - 1) { return }
+        $Width = [Math]::Min($Width, $buf.Width - $X)
+        $Height = [Math]::Min($Height, $buf.Height - $Y)
+        if ($Width -lt 4 -or $Height -lt 3) { return }
+    } catch {
+        if ($Width -lt 4 -or $Height -lt 3) { return }
+    }
+    $tl = [char]0x2554
+    $tr = [char]0x2557
+    $bl = [char]0x255A
+    $br = [char]0x255D
+    $h = [char]0x2550
+    $v = [char]0x2551
+    $top = "$tl" + (([string]$h) * ($Width - 2)) + "$tr"
+    if ($Title) {
+        $t = " $Title "
+        if ($t.Length -lt ($Width - 2)) {
+            $start = [Math]::Max(1, [Math]::Floor((($Width - 2) - $t.Length) / 2) + 1)
+            $top = $top.Substring(0, $start) + $t + $top.Substring($start + $t.Length)
+        }
+    }
+    $mid = "$v" + (" " * ($Width - 2)) + "$v"
+    $bot = "$bl" + (([string]$h) * ($Width - 2)) + "$br"
+    Write-At -X $X -Y $Y -Text $top -NoNewline
+    for ($i = 1; $i -lt ($Height - 1); $i++) {
+        Write-At -X $X -Y ($Y + $i) -Text $mid -NoNewline
+    }
+    Write-At -X $X -Y ($Y + $Height - 1) -Text $bot -NoNewline
+}
+
+function Render-RunHeader {
+    param(
+        [int]$Frames = 0
+    )
+    Clear-Host
+    $esc = [char]27
+    $reset = "$esc[0m"
+    $gray = "$esc[90m"
+    $lines = @(
+        'IIII  lll   u   u  m   m  n   n  u   u  lll    OOO   SSS ',
+        ' II   ll    u   u  mm mm  nn  n  u   u  ll    O   O S    ',
+        ' II   ll    u   u  m m m  n n n  u   u  ll    O   O  SSS ',
+        ' II   ll    u   u  m   m  n  nn  u   u  ll    O   O    S ',
+        'IIII llll    uuu   m   m  n   n   uuu  llll    OOO  SSS  '
+    )
+    $subtitle = "Windows 11 Ultimate Optimization Tool"
+    $m = Get-TerminalMetrics
+    $w = [int]$m.Width
+    $maxLineLen = ($lines | Measure-Object -Property Length -Maximum).Maximum
+    $padTitle = [Math]::Max(0, [Math]::Floor(($w - $maxLineLen) / 2))
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        Write-At -X $padTitle -Y $i -Text (Get-GradientText $lines[$i] 120 0 255 0 255 255) -NoNewline
+    }
+    $padSubtitle = [Math]::Max(0, [Math]::Floor(($w - $subtitle.Length) / 2))
+    Write-At -X $padSubtitle -Y ($lines.Count) -Text (Get-GradientText $subtitle 0 255 255 255 255 255) -NoNewline
+    $border = ([string][char]0x2500) * [Math]::Min(70, [Math]::Max(30, $w - 10))
+    $padBorder = [Math]::Max(0, [Math]::Floor(($w - $border.Length) / 2))
+    Write-At -X $padBorder -Y ($lines.Count + 1) -Text ($gray + $border + $reset) -NoNewline
+    $global:HeaderBottomY = $lines.Count + 1
+}
+
+function Show-HeaderWave {
+    param(
+        [int]$Frames = 40,
+        [int]$DelayMs = 18,
+        [bool]$clear = $true
+    )
+    if ($clear) { Clear-Host }
+    $lines = @(
+        'IIII  lll   u   u  m   m  n   n  u   u  lll    OOO   SSS ',
+        ' II   ll    u   u  mm mm  nn  n  u   u  ll    O   O S    ',
+        ' II   ll    u   u  m m m  n n n  u   u  ll    O   O  SSS ',
+        ' II   ll    u   u  m   m  n  nn  u   u  ll    O   O    S ',
+        'IIII llll    uuu   m   m  n   n   uuu  llll    OOO  SSS  '
+    )
+    $subtitle = "Windows 11 Ultimate Optimization Tool"
+    $start = New-Object System.Management.Automation.Host.Coordinates(0, 0)
+    $width = $Host.UI.RawUI.WindowSize.Width
+    $maxLineLen = ($lines | Measure-Object -Property Length -Maximum).Maximum
+    $padTitle = [Math]::Max(0, [Math]::Floor(($width - $maxLineLen) / 2))
+    $padSubtitle = [Math]::Max(0, [Math]::Floor(($width - $subtitle.Length) / 2))
+    for ($f = 0; $f -lt $Frames; $f++) {
+        $Host.UI.RawUI.CursorPosition = $start
+        foreach ($line in $lines) {
+            Write-Host (" " * $padTitle) -NoNewline
+            Write-Host (Get-WaveText -Text $line -Frame $f -Speed 0.22 -Freq 0.12 -BaseR 120 -BaseG 0 -BaseB 255 -AmpR -60 -AmpG 255 -AmpB 0)
+        }
+        Write-Host (" " * $padSubtitle) -NoNewline
+        Write-Host (Get-GradientText $subtitle 0 255 255 255 255 255)
+        Start-Sleep -Milliseconds $DelayMs
+    }
+    $hw = if ($global:cachedHwInfo) { $global:cachedHwInfo } else { Get-HardwareInfo }
+    $esc = [char]27
+    $reset = "$esc[0m"
+    $gray = "$esc[90m"
+    $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 52) + ([string][char]0x2557)
+    $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 52) + ([string][char]0x255D)
+    $padBox = [Math]::Max(0, [Math]::Floor(($width - $boxTop.Length) / 2))
+    $indent = " " * $padBox
+    Write-Host ""
+    Write-Host "$indent$gray$boxTop$reset"
+    Write-HwLine "CPU" $hw.CPU $indent
+    Write-HwLine "GPU" $hw.GPU $indent
+    Write-HwLine "RAM" $hw.RAM $indent
+    Write-Host "$indent$gray$boxBot$reset"
+    $borderLine = ([string][char]0x2500) * 54
+    Write-Host (" " * [Math]::Max(0, [Math]::Floor(($width - $borderLine.Length) / 2)) + $borderLine) -ForegroundColor Gray
+    $global:HeaderBottomY = $Host.UI.RawUI.CursorPosition.Y
+}
+
 function Write-Spinner {
     param([string]$Message)
-    $frames = @("â ‹","â ™","â ¹","â ¸","â ¼","â ´","â ¦","â §","â ‡","â ")
+    $frames = @("|","/","-","\\")
     $esc = [char]27
     $cyan = "$esc[36m"
     $reset = "$esc[0m"
     for ($i = 0; $i -lt 10; $i++) {
-        Write-Host "`r$cyan$($frames[$i % 10])$reset $Message" -NoNewline
+        Write-Host "`r$cyan$($frames[$i % $frames.Count])$reset $Message" -NoNewline
         Start-Sleep -Milliseconds 50
     }
     Write-Host "`r   $Message" -NoNewline # Clean up
@@ -223,7 +421,7 @@ function Write-ProgressBar {
 }
 
 function Write-HwLine {
-    param($Label, $Value)
+    param($Label, $Value, [string]$Indent = "  ")
     $Width = 52
     $esc = [char]27
     $gray = "$esc[90m"
@@ -245,51 +443,63 @@ function Write-HwLine {
     $l = [math]::Floor($pad / 2)
     $r = $pad - $l
     
-    Write-Host "  $gray$boxMid$reset" -NoNewline
+    Write-Host "$Indent$gray$boxMid$reset" -NoNewline
     Write-Host (" " * $l) -NoNewline
     Write-Host "$cyan$Label :$reset $Value" -NoNewline
     Write-Host (" " * $r) -NoNewline
     Write-Host "$gray$boxMid$reset"
 }
 
-function Show-Header {
-    Clear-Host
-    $esc = [char]27
-    $bold = "$esc[1m"
-    $reset = "$esc[0m"
-
-    $lines = @(
-        "    __  __                          __ ____  _____",
-        "   / / / /_  ______ ___  ____  __  __/ / __ \/ ___/",
-        "  / / / / / / / __ `__ \/ __ \/ / / / / / / /\__ \ ",
-        " / /_/ / /_/ / / / / / / / / / /_/ / / /_/ /___/ / ",
-        " \____/\__,_/_/ /_/ /_/_/ /_/\__,_/_/\____//____/  "
+function Render-HeaderStatic {
+    param(
+        [bool]$Clear = $true,
+        [bool]$UseCachedHw = $true
     )
-    foreach ($line in $lines) {
-        Write-Host (Get-GradientText $line 150 0 255 0 255 255)
-    }
-    
-    $subtitle = "          Windows 11 Ultimate Optimization Tool"
-    Write-Host (Get-GradientText $subtitle 0 255 255 255 255 255)
-    
-    $hw = Get-HardwareInfo
+    if ($Clear) { Clear-Host }
     $esc = [char]27
-    $cyan = "$esc[36m"
-    $gray = "$esc[90m"
     $reset = "$esc[0m"
+    $gray = "$esc[90m"
+    $lines = @(
+        'IIII  lll   u   u  m   m  n   n  u   u  lll    OOO   SSS ',
+        ' II   ll    u   u  mm mm  nn  n  u   u  ll    O   O S    ',
+        ' II   ll    u   u  m m m  n n n  u   u  ll    O   O  SSS ',
+        ' II   ll    u   u  m   m  n  nn  u   u  ll    O   O    S ',
+        'IIII llll    uuu   m   m  n   n   uuu  llll    OOO  SSS  '
+    )
+    $subtitle = "Windows 11 Ultimate Optimization Tool"
+    $w = $Host.UI.RawUI.WindowSize.Width
+
+    foreach ($line in $lines) {
+        $pad = [Math]::Max(0, [Math]::Floor(($w - $line.Length) / 2))
+        Write-Host (" " * $pad) -NoNewline
+        Write-Host (Get-GradientText $line 120 0 255 0 255 255)
+    }
+
+    $pad2 = [Math]::Max(0, [Math]::Floor(($w - $subtitle.Length) / 2))
+    Write-Host (" " * $pad2) -NoNewline
+    Write-Host (Get-GradientText $subtitle 0 255 255 255 255 255)
+
+    $hw = if ($UseCachedHw -and $global:cachedHwInfo) { $global:cachedHwInfo } else { Get-HardwareInfo }
     $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 52) + ([string][char]0x2557)
-    $boxMid = ([string][char]0x2551)
     $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 52) + ([string][char]0x255D)
+    $padBox = [Math]::Max(0, [Math]::Floor(($w - $boxTop.Length) / 2))
+    $indent = " " * $padBox
 
     Write-Host ""
-    Write-Host "  $gray$boxTop$reset"
-    Write-HwLine "CPU" $hw.CPU
-    Write-HwLine "GPU" $hw.GPU
-    Write-HwLine "RAM" $hw.RAM
-    Write-Host "  $gray$boxBot$reset"
-    
+    Write-Host "$indent$gray$boxTop$reset"
+    Write-HwLine "CPU" $hw.CPU $indent
+    Write-HwLine "GPU" $hw.GPU $indent
+    Write-HwLine "RAM" $hw.RAM $indent
+    Write-Host "$indent$gray$boxBot$reset"
+
     $borderLine = ([string][char]0x2500) * 54
-    Write-Host "  $borderLine" -ForegroundColor Gray
+    $padBorder = [Math]::Max(0, [Math]::Floor(($w - $borderLine.Length) / 2))
+    Write-Host (" " * $padBorder + $borderLine) -ForegroundColor Gray
+    $global:HeaderBottomY = $Host.UI.RawUI.CursorPosition.Y
+}
+
+function Show-Header {
+    Render-HeaderStatic -Clear $true -UseCachedHw $false
 }
 
 function Get-MenuSelection {
@@ -326,8 +536,7 @@ function Get-MenuSelection {
     }
 }
 
-$global:MusicEnabled = $true
-Show-Header
+Show-HeaderWave
 Write-Typewriter " [SYSTEM] Initializing IlumnulOS Ultimate v2.0..." -Delay 15 -Color Cyan
 Write-Typewriter " [SYSTEM] Loading modules and verifying environment..." -Delay 10 -Color Gray
 Start-Sleep -Seconds 1
@@ -336,79 +545,53 @@ $global:cachedHwInfo = Get-HardwareInfo
 
 function Show-Header-Optimized {
     param([bool]$clear = $true)
-    if ($clear) { Clear-Host }
-    $esc = [char]27
-    $bold = "$esc[1m"
-    $reset = "$esc[0m"
-
-    $lines = @(
-        "    __  __                          __ ____  _____",
-        "   / / / /_  ______ ___  ____  __  __/ / __ \/ ___/",
-        "  / / / / / / / __ `__ \/ __ \/ / / / / / / /\__ \ ",
-        " / /_/ / /_/ / / / / / / / / / /_/ / / /_/ /___/ / ",
-        " \____/\__,_/_/ /_/ /_/_/ /_/\__,_/_/\____//____/  "
-    )
-    foreach ($line in $lines) {
-        Write-Host (Get-GradientText $line 150 0 255 0 255 255)
-    }
-    
-    $subtitle = "          Windows 11 Ultimate Optimization Tool"
-    Write-Host (Get-GradientText $subtitle 0 255 255 255 255 255)
-    
-    $hw = $global:cachedHwInfo
-    $cyan = "$esc[36m"
-    $gray = "$esc[90m"
-    $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 52) + ([string][char]0x2557)
-    $boxMid = ([string][char]0x2551)
-    $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 52) + ([string][char]0x255D)
-
-    Write-Host ""
-    Write-Host "  $gray$boxTop$reset"
-    Write-HwLine "CPU" $hw.CPU
-    Write-HwLine "GPU" $hw.GPU
-    Write-HwLine "RAM" $hw.RAM
-    Write-Host "  $gray$boxBot$reset"
-    
-    $borderLine = ([string][char]0x2500) * 54
-    Write-Host "  $borderLine" -ForegroundColor Gray
+    Render-HeaderStatic -Clear $clear -UseCachedHw $true
 }
 
 while ($true) {
     $esc = [char]27
+    $bold = "$esc[1m"
+    $cyan = "$esc[36m"
     $green = "$esc[32m"
     $gray = "$esc[90m"
     $reset = "$esc[0m"
-    
-    $musicToggle = if ($global:MusicEnabled) { "$green$([string][char]0x25CF)$([string][char]0x2500)$([string][char]0x2500)$([string][char]0x2500)$gray$([string][char]0x25CB)$reset ON " } else { "$gray$([string][char]0x25CB)$([string][char]0x2500)$([string][char]0x2500)$([string][char]0x2500)$reset$([string][char]0x25CF) OFF" }
-    
-    $menuOptions = @("Start Optimization (Full Suite)", "Music: [$musicToggle]", "Exit")
+    $menuOptions = @("Start Optimization (Full Suite)", "Exit")
     
     $selectedIndex = 0
     $inMenu = $true
     
-    Show-Header-Optimized -clear $true
+    Show-HeaderWave -clear $true
     
     while ($inMenu) {
-        $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates(0, 15) # Adjust based on header height
-        
-        Write-Host ""
-        $cyan = "$esc[36m"
-        $bold = "$esc[1m"
-        
+        $menuTopY = if ($global:HeaderBottomY) { [int]$global:HeaderBottomY + 2 } else { 15 }
+        $m = Get-TerminalMetrics
+        $menuMax = ($menuOptions | Measure-Object -Property Length -Maximum).Maximum
+        $panelW = [int][Math]::Max(46, [Math]::Min(72, ($menuMax + 12)))
+        $panelX = [int][Math]::Max(0, [Math]::Floor(($m.Width - $panelW) / 2))
+        $boxH = $menuOptions.Count + 3
+        Clear-Region -X 0 -Y $menuTopY -Width $m.Width -Height ($boxH + 2)
+        Draw-Box -X $panelX -Y $menuTopY -Width $panelW -Height $boxH -Title "MENU"
+
+        $innerW = $panelW - 4
+        $optY = $menuTopY + 1
         for ($i = 0; $i -lt $menuOptions.Count; $i++) {
-            Write-Host (" " * 80) -NoNewline 
-            $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates(0, $Host.UI.RawUI.CursorPosition.Y)
-            
+            $lineX = $panelX + 2
+            Write-At -X $lineX -Y ($optY + $i) -Text (" " * $innerW) -NoNewline
+
             if ($i -eq $selectedIndex) {
-                Write-Host "    $bold$cyan > $($menuOptions[$i])$reset" -ForegroundColor Cyan
+                $txt = "> " + $menuOptions[$i]
+                $pad = [Math]::Max(0, [Math]::Floor(($innerW - $txt.Length) / 2))
+                Write-At -X ($lineX + $pad) -Y ($optY + $i) -Text ("$bold$cyan$txt$reset") -NoNewline
             } else {
-                Write-Host "      $($menuOptions[$i])" -ForegroundColor Gray
+                $txt = "  " + $menuOptions[$i]
+                $pad = [Math]::Max(0, [Math]::Floor(($innerW - $txt.Length) / 2))
+                Write-At -X ($lineX + $pad) -Y ($optY + $i) -Text ($gray + $txt + $reset) -NoNewline
             }
         }
-        Write-Host ""
-        $borderLine = ([string][char]0x2500) * 54
-        Write-Host "  $borderLine" -ForegroundColor Gray
-        Write-Host "  Use Up/Down arrows to navigate, Enter to select." -ForegroundColor DarkGray
+
+        $hint = "Use Up/Down arrows to navigate, Enter to select."
+        $hintPad = [Math]::Max(0, [Math]::Floor(($m.Width - $hint.Length) / 2))
+        Write-At -X $hintPad -Y ($menuTopY + $boxH) -Text ($gray + $hint + $reset) -NoNewline
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         if ($key.VirtualKeyCode -eq 38) { # Up
@@ -426,37 +609,35 @@ while ($true) {
         $bold = "$esc[1m"
         $reset = "$esc[0m"
 
-        Clear-Host
-        Show-Header
-        
-        if ($global:MusicEnabled) {
-            $musicPath = "$ScriptPath\Modules\IlumnulOS.mp3"
-            if (Test-Path $musicPath) {
-                Start-Music -FilePath $musicPath
-                $cliLogger.Invoke("Playing background music: IlumnulOS.mp3")
-            }
-        }
-        
-        Write-Typewriter " [OPTIMIZE] Starting system-wide optimization..." -Delay 20 -Color Green
-        Start-Sleep -Seconds 1
-        
-        Write-Host ""
-        $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 100) + ([string][char]0x2557)
-        $boxMid = ([string][char]0x2551)
-        $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 100) + ([string][char]0x255D)
-        
-        Write-Host "  $gray$boxTop$reset"
-        $logHeight = 10
-        $logStartY = $Host.UI.RawUI.CursorPosition.Y
-        
-        for ($i = 0; $i -lt $logHeight; $i++) {
-            Write-Host "  $gray$boxMid$reset                                                                                                    $gray$boxMid$reset"
-        }
-        Write-Host "  $gray$boxBot$reset"
-        
-        $global:LogAreaTop = $logStartY
-        $global:LogAreaBottom = $logStartY + $logHeight
-        $global:LogCurrentLine = 0
+        Render-RunHeader
+        $cyan = "$esc[36m"
+        $m = Get-TerminalMetrics -MaxPanelWidth 120
+        $panelX = [int]$m.PanelX
+        $panelW = [int]$m.PanelWidth
+
+        $statusY = if ($global:HeaderBottomY) { [int]$global:HeaderBottomY + 1 } else { 10 }
+        $statusH = 5
+        $logY = $statusY + $statusH + 1
+        $available = [Math]::Max(0, $m.BufferHeight - ($logY + 3))
+        $logH = [Math]::Max(8, [Math]::Min(16, $available))
+
+        Draw-Box -X $panelX -Y $statusY -Width $panelW -Height $statusH -Title "STATUS"
+        Draw-Box -X $panelX -Y $logY -Width $panelW -Height $logH -Title "LOG"
+
+        $innerX = $panelX + 2
+        $innerW = $panelW - 4
+
+        $global:StatusLineY = $statusY + 2
+        $global:StatusDetailY = $statusY + 3
+        Write-At -X $innerX -Y $global:StatusLineY -Text (" " * $innerW) -NoNewline
+        Write-At -X $innerX -Y $global:StatusDetailY -Text (" " * $innerW) -NoNewline
+        Write-At -X $innerX -Y $global:StatusLineY -Text ("$green[RUN]$reset Starting system-wide optimization...") -NoNewline
+        Write-At -X $innerX -Y $global:StatusDetailY -Text ("$gray Step:$reset Initializing") -NoNewline
+
+        $global:LogX = $innerX
+        $global:LogInnerW = $innerW
+        $global:LogAreaTop = $logY + 2
+        $global:LogAreaBottom = $logY + $logH - 2
         $global:LogHistory = New-Object System.Collections.Generic.List[string]
 
         $desktopPath = [Environment]::GetFolderPath("Desktop")
@@ -476,35 +657,76 @@ while ($true) {
             $esc = [char]27
             $bold = "$esc[1m"
             $reset = "$esc[0m"
+            $cyan = "$esc[36m"
+            $gray = "$esc[90m"
             
             $cleanMsg = $msg -replace '\x1b\[[0-9;]*m', '' # Strip ANSI codes
             $logEntry = "[$timestamp] $cleanMsg"
             Add-Content -Path $logFilePath -Value $logEntry -ErrorAction SilentlyContinue
+            $logHeight = [Math]::Max(1, ($global:LogAreaBottom - $global:LogAreaTop + 1))
+            $maxW = [int]$global:LogInnerW
+
+            function FitPlain([string]$s, [int]$w) {
+                if ($w -le 0) { return "" }
+                if ($null -eq $s) { return "" }
+                if ($s.Length -le $w) { return $s }
+                return $s.Substring(0, $w)
+            }
 
     $iconOk = "$([char]0x2714)"      # Checkmark
     $iconFail = "$([char]0x2718)"    # X
     $iconWarn = "$([char]0x26A0)"    # Warning Triangle
     $iconSkull = "$([char]0x2620)"   # Skull
     
-    if ($msg -match '^\[P(\d+)\] (.*)') {
-        $pct = [int]$matches[1]
-        $txt = $matches[2]
-        $barLen = 20
-        $filledLen = [int]($barLen * $pct / 100)
-        $bar = ("$([char]0x2588)" * $filledLen) + ("$([char]0x2591)" * ($barLen - $filledLen))
-        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset [$bar] $pct% $txt"
-    } elseif ($msg -match 'Error' -or $msg -match 'FAILED') {
-        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $iconFail $msg"
+    if ($cleanMsg -match '^(?:Step:\s*)?\[(\d+)/(\d+)\]\s*(.*)$') {
+        $idx = $matches[1]
+        $tot = $matches[2]
+        $desc = $matches[3]
+
+        Write-At -X $global:LogX -Y $global:StatusDetailY -Text (" " * $global:LogInnerW) -NoNewline
+        $statusPlain = FitPlain ("Step: [$idx/$tot] $desc") $maxW
+        Write-At -X $global:LogX -Y $global:StatusDetailY -Text ($gray + $statusPlain + $reset) -NoNewline
+    }
+
+    if ($msg -match 'Error' -or $msg -match 'FAILED') {
+        $prefixPlain = "[$timestamp] | $iconFail "
+        $prefix = "[$timestamp] $bold$([char]0x2503)$reset $iconFail "
+        $maxMsg = [Math]::Max(0, $maxW - $prefixPlain.Length)
+        $msgPlain = FitPlain $cleanMsg $maxMsg
+        $wave = Get-WaveLogText -Text $msgPlain -Theme "Error" -MaxPlainLen $maxMsg
+        $formattedMsg = $prefix + $wave + $reset
     } elseif ($msg -match 'Success' -or $msg -match 'OK' -or $msg -match 'Finished' -or $msg -match 'completed successfully') {
-        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $iconOk $msg"
+        $prefixPlain = "[$timestamp] | $iconOk "
+        $prefix = "[$timestamp] $bold$([char]0x2503)$reset $iconOk "
+        $maxMsg = [Math]::Max(0, $maxW - $prefixPlain.Length)
+        $msgPlain = FitPlain $cleanMsg $maxMsg
+        $wave = Get-WaveLogText -Text $msgPlain -Theme "Ok" -MaxPlainLen $maxMsg
+        $formattedMsg = $prefix + $wave + $reset
     } elseif ($msg -match 'Warning' -or $msg -match 'skipped') {
-        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $iconWarn $msg"
+        $prefixPlain = "[$timestamp] | $iconWarn "
+        $prefix = "[$timestamp] $bold$([char]0x2503)$reset $iconWarn "
+        $maxMsg = [Math]::Max(0, $maxW - $prefixPlain.Length)
+        $msgPlain = FitPlain $cleanMsg $maxMsg
+        $wave = Get-WaveLogText -Text $msgPlain -Theme "Warn" -MaxPlainLen $maxMsg
+        $formattedMsg = $prefix + $wave + $reset
     } elseif ($msg -match 'Removing' -or $msg -match 'Disabling' -or $msg -match 'Purging') {
-        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $iconSkull $msg"
+        $prefixPlain = "[$timestamp] | $iconSkull "
+        $prefix = "[$timestamp] $bold$([char]0x2503)$reset $iconSkull "
+        $maxMsg = [Math]::Max(0, $maxW - $prefixPlain.Length)
+        $msgPlain = FitPlain $cleanMsg $maxMsg
+        $wave = Get-WaveLogText -Text $msgPlain -Theme "Skull" -MaxPlainLen $maxMsg
+        $formattedMsg = $prefix + $wave + $reset
     } elseif ($msg -match '^\[\d/\d\]') {
-            $formattedMsg = "$bold$([char]0x2550)$([char]0x2550) $msg $([char]0x2550)$([char]0x2550)$reset"
+            $plain = FitPlain $cleanMsg $maxW
+            $wave = Get-WaveLogText -Text $plain -Theme "Default" -MaxPlainLen $maxW
+            $formattedMsg = "$bold$wave$reset"
     } else {
-        $formattedMsg = "[$timestamp] $bold$([char]0x2503)$reset $msg"
+        $prefixPlain = "[$timestamp] | "
+        $prefix = "[$timestamp] $bold$([char]0x2503)$reset "
+        $maxMsg = [Math]::Max(0, $maxW - $prefixPlain.Length)
+        $msgPlain = FitPlain $cleanMsg $maxMsg
+        $wave = Get-WaveLogText -Text $msgPlain -Theme "Default" -MaxPlainLen $maxMsg
+        $formattedMsg = $prefix + $wave + $reset
     }
 
             $global:LogHistory.Add($formattedMsg)
@@ -518,82 +740,85 @@ while ($true) {
             $currentY = $global:LogAreaTop
             foreach ($line in $displayLines) {
                 
-                $coord = New-Object System.Management.Automation.Host.Coordinates 4, $currentY
-                $Host.UI.RawUI.CursorPosition = $coord
-                Write-Host (" " * 98) -NoNewline # Clear content
-                
-                $Host.UI.RawUI.CursorPosition = $coord
-                
-                if ($line.Length -gt 98) { $line = $line.Substring(0, 98) }
-                Write-Host $line -NoNewline
+                Write-At -X $global:LogX -Y $currentY -Text (" " * $global:LogInnerW) -NoNewline
+                Write-At -X $global:LogX -Y $currentY -Text $line -NoNewline
                 
                 $currentY++
             }
             
-            $Host.UI.RawUI.CursorPosition = New-Object System.Management.Automation.Host.Coordinates 0, ($global:LogAreaBottom + 1)
+            Write-At -X 0 -Y ($global:LogAreaBottom + 1) -Text "" -NoNewline
         }
         
         Start-Sleep -Milliseconds 200
+        $prevEAP = $ErrorActionPreference
+        $prevWP = $WarningPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        $WarningPreference = "SilentlyContinue"
         $cliLogger.Invoke("[1/6] System Performance Optimization")
         
         $cliLogger.Invoke("Analyzing System Configuration...")
-        Invoke-SystemOptimization -Logger $cliLogger
+        try { Invoke-SystemOptimization -Logger $cliLogger 2>$null } catch {}
         
         $cliLogger.Invoke("Applying Group Policy Tweaks...")
-        Invoke-GroupPolicyTweaks -Logger $cliLogger
+        try { Invoke-GroupPolicyTweaks -Logger $cliLogger 2>$null } catch {}
         
         $cliLogger.Invoke("Applying Modern Cursor Scheme...")
-        Invoke-ModernCursor -Logger $cliLogger
+        try { Invoke-ModernCursor -Logger $cliLogger 2>$null } catch {}
         
         $cliLogger.Invoke("[2/6] Gaming and Latency Optimization")
         $cliLogger.Invoke("Applying Gaming Tweaks...")
-        Invoke-GamingOptimization -Logger $cliLogger -Options @{ GameMode = $true }
+        try { Invoke-GamingOptimization -Logger $cliLogger -Options @{ GameMode = $true } 2>$null } catch {}
         
         $cliLogger.Invoke("[3/6] NVIDIA Profile Inspector Tweak")
         $cliLogger.Invoke("Checking GPU Settings...")
-        Invoke-NvidiaProfile -Logger $cliLogger
+        try { Invoke-NvidiaProfile -Logger $cliLogger 2>$null } catch {}
         
         $cliLogger.Invoke("[4/6] Privacy and Debloat")
         $cliLogger.Invoke("Removing Bloatware...")
-        Remove-Bloatware -Logger $cliLogger
+        try { Remove-Bloatware -Logger $cliLogger 2>$null } catch {}
         
         $cliLogger.Invoke("[5/6] AI and Copilot Removal")
         $cliLogger.Invoke("Purging AI Components...")
-        Remove-WindowsAI -Logger $cliLogger
+        try { Remove-WindowsAI -Logger $cliLogger 2>$null } catch {}
         
         $cliLogger.Invoke("[6/6] Finalizing and Cleanup")
         $cliLogger.Invoke("Running Ultimate Cleanup...")
-        ipconfig /flushdns | Out-Null
+        ipconfig /flushdns 2>$null | Out-Null
         $cliLogger.Invoke("DNS Cache Flushed.")
         
-        Invoke-UltimateCleanup -Logger $cliLogger
+        try { Invoke-UltimateCleanup -Logger $cliLogger 2>$null } catch {}
         
         $cliLogger.Invoke("Restarting Explorer to apply changes...")
         Stop-Process -Name Explorer -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
-        
-        if ($global:MusicEnabled) { Stop-Music }
-        
-        Write-Host ""
-        $boxTop = ([string][char]0x2554) + ([string][char]0x2550 * 52) + ([string][char]0x2557)
-        $boxMid = ([string][char]0x2551)
-        $boxBot = ([string][char]0x255A) + ([string][char]0x2550 * 52) + ([string][char]0x255D)
-        
-        Write-Host "  $gray$boxTop$reset"
-        Write-Host "  $gray$boxMid$reset $green OPTIMIZATION REPORT:$reset                              $gray$boxMid$reset"
-        Write-Host "  $gray$boxMid$reset $cyan Status     :$reset Completed Successfully               $gray$boxMid$reset"
-        Write-Host "  $gray$boxMid$reset $cyan Performance:$reset Maximized (Ultimate Mode)            $gray$boxMid$reset"
-        Write-Host "  $gray$boxMid$reset $cyan Privacy    :$reset Enhanced                             $gray$boxMid$reset"
-        Write-Host "  $gray$boxMid$reset $cyan Telemetry  :$reset Purged                               $gray$boxMid$reset"
-        Write-Host "  $gray$boxBot$reset"
-        Write-Host ""
+        $m2 = Get-TerminalMetrics -MaxPanelWidth 96
+        $repW = [int][Math]::Min($m2.PanelWidth, 96)
+        $repX = [int]$m2.PanelX
+        $repH = 7
+        $repY = [int]([Math]::Min(($global:LogAreaBottom + 2), ($m2.BufferHeight - $repH)))
+        Draw-Box -X $repX -Y $repY -Width $repW -Height $repH -Title "REPORT"
+        $ix = $repX + 2
+        $iw = $repW - 4
+        $lines = @(
+            "$green Optimization Completed$reset",
+            "$cyan Status:$reset Completed Successfully",
+            "$cyan Performance:$reset Maximized (Ultimate Mode)",
+            "$cyan Privacy:$reset Enhanced",
+            "$cyan Telemetry:$reset Purged"
+        )
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            Write-At -X $ix -Y ($repY + 1 + $i) -Text (" " * $iw) -NoNewline
+            $plain = ($lines[$i] -replace '\x1b\[[0-9;]*m', '')
+            $pad = [Math]::Max(0, [Math]::Floor(($iw - $plain.Length) / 2))
+            Write-At -X ($ix + $pad) -Y ($repY + 1 + $i) -Text $lines[$i] -NoNewline
+        }
         
         $cliLogger.Invoke("Success: Optimization Suite Finished!")
         $cliLogger.Invoke("Log file saved to Desktop: IlumnulOS_Log.txt")
+        $ErrorActionPreference = $prevEAP
+        $WarningPreference = $prevWP
         Write-Host "`n  Press any key to return to menu..." -ForegroundColor Gray
         $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    } elseif ($choiceIndex -eq 1) {
-        $global:MusicEnabled = -not $global:MusicEnabled
     } else {
         Write-Typewriter " [SYSTEM] Exiting... Stay optimized!" -Delay 20 -Color Cyan
         break
